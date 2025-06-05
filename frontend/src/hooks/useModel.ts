@@ -23,6 +23,12 @@ const availableModels: {
     label: 'Claude 3 (Opus)',
     supportMediaType: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
   },
+  //Agregamos el boton del claude 3.5 sonnet, para que quede igual que el bedrock Cluade
+  {
+    modelId: 'claude-v3.5-sonnet',
+    label: 'claude 3.5 (Sonnet)',
+    supportMediaType: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
+  },
 ] : [
     {
       modelId: 'mistral-7b-instruct',
