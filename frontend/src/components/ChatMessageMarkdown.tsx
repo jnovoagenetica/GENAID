@@ -2,7 +2,8 @@ import React, { ReactNode, useMemo } from 'react';
 import { BaseProps } from '../@types/common';
 import { ReactMarkdown } from 'react-markdown/lib/react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+//Cambiamos esta linea: import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism/vsc-dark-plus"; por la de abajo
+import vscDarkPlus from "react-syntax-highlighter/dist/esm/styles/prism/vsc-dark-plus";
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 import ButtonCopy from './ButtonCopy';
