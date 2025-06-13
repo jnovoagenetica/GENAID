@@ -30,6 +30,17 @@ export default {
         'dark-gray': '#6b7280',
         gray: '#9ca3af',
         'light-gray': '#e5e7eb',
+        //Agregamos el color soft-cyan directamente al talwind este es el color de fondo de login
+        'soft-cyan': '#D4EEF3',
+        //Agregamos el color login-bg para el color de el formulario de login
+        'login-bg': '#E6EFE0',
+        'menu-header': '#60B0C0',
+        'boton-header': '#A3D1E4',
+        'linea-menu': '#353030',
+        'chat-user-color': '#C1D8E4',
+        'dark-black': '#000000',
+        'menu-divider': '#353030'
+
       },
     },
   },

@@ -5,6 +5,7 @@ export type Model =
   | 'claude-v3-opus'
   | 'claude-v3-sonnet'
   | 'claude-v3-haiku'
+  |  'claude-v3.5-sonnet'
   | 'mistral-7b-instruct'
   | 'mixtral-8x7b-instruct'
   | 'mistral-large';

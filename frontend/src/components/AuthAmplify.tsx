@@ -2,10 +2,7 @@ import React, { ReactNode, cloneElement, ReactElement } from 'react';
 import { BaseProps } from '../@types/common';
 import { Authenticator } from '@aws-amplify/ui-react';
 import { SocialProvider } from '@aws-amplify/ui';
-import { useTranslation } from 'react-i18next';
 import { useAuthenticator } from '@aws-amplify/ui-react';
-
-const MISTRAL_ENABLED: boolean = import.meta.env.VITE_APP_ENABLE_MISTRAL === 'true';
 
 type Props = BaseProps & {
   socialProviders: SocialProvider[];
@@ -13,19 +10,24 @@ type Props = BaseProps & {
 };
 
 const AuthAmplify: React.FC<Props> = ({ socialProviders, children }) => {
-  const { t } = useTranslation();
   const { signOut } = useAuthenticator();
 
   return (
     <Authenticator
       socialProviders={socialProviders}
+      hideSignUp
       components={{
         Header: () => (
-          <div className="mb-5 mt-10 flex justify-center text-3xl text-aws-font-color">
-            {!MISTRAL_ENABLED ? t('app.name') : t('app.nameWithoutClaude')}
+          <div className="mb-5 mt-10 flex justify-center">
+            <img
+              src="/Gentica_Humana.png" // ✅ Imagen en carpeta `public/`
+              alt="Logo Genética Humana"
+              className="h-50 w-auto object-contain"
+            />
           </div>
         ),
-      }}>
+      }}
+    >
       <>{cloneElement(children as ReactElement, { signOut })}</>
     </Authenticator>
   );

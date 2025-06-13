@@ -8,3 +8,10 @@
     --amplify-components-button-primary-background-color
   ) !important;
 }
+
+/*Esto es lo que le permite a min-h-screen realmente ocupar toda la pantalla. Sin esto, el fondo solo se aplica al contenido que tiene altura, no a toda la pantalla.*/
+html,
+body,
+#root {
+  height: 100%;
+}

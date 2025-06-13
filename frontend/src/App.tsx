@@ -45,20 +45,22 @@ const App: React.FC = () => {
   I18n.setLanguage(i18n.language);
 
   return (
-    <>
-      {customProviderEnabled ? (
-        <AuthCustom>
+  //Esto garantizará que cualquier vista esté envuelta en un fondo bg-soft-cyan
+  <div className="min-h-screen bg-soft-cyan font-body">
+    {customProviderEnabled ? (
+      <AuthCustom>
+        <AppContent />
+      </AuthCustom>
+    ) : (
+      <Authenticator.Provider>
+        <AuthAmplify socialProviders={socialProviderFromEnv}>
           <AppContent />
-        </AuthCustom>
-      ) : (
-        <Authenticator.Provider>
-          <AuthAmplify socialProviders={socialProviderFromEnv}>
-            <AppContent />
-          </AuthAmplify>
-        </Authenticator.Provider>
-      )}
-    </>
-  );
+        </AuthAmplify>
+      </Authenticator.Provider>
+    )}
+  </div>
+);
 };
 
 export default App;
+

@@ -28,12 +28,16 @@ const AppContent: React.FC<Props> = (props) => {
   }, []);
 
   return (
-    <div className="h-dvh relative flex w-screen bg-aws-paper">
+    
+    //Cambiamos nada mas lo del color, tenia este color predeterminado bg-aws-paper que viene de wl talwind.config.js y agregamos el bg-sky-50
+    <div className="h-dvh relative flex w-screen bg-sky-50">
+      <div className="border-r" style={{ borderColor: '#353030' }}>
       <ChatListDrawer
         onSignOut={() => {
           props.signOut ? props.signOut() : null;
         }}
       />
+      </div>
 
       <main className="min-h-dvh relative flex-1 overflow-y-hidden transition-width">
         <header className="visible flex h-12 w-full items-center bg-aws-squid-ink p-3 text-lg text-aws-font-color-white lg:hidden lg:h-0">
@@ -73,3 +77,4 @@ const AppContent: React.FC<Props> = (props) => {
 };
 
 export default AppContent;
+
