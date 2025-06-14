@@ -80,7 +80,7 @@ const useInputChatContentState = create<{
 }));
 
 const InputChatContent: React.FC<Props> = (props) => {
-  const [showHelpfulInfo, setShowHelpfulInfo] = useState(false);
+  const [showHelpfulInfo, setShowHelpfulInfo] = useState(true);
   const { t } = useTranslation();
   const { postingMessage, hasError, messages } = useChat();
   const { disabledImageUpload, model, acceptMediaType } = useModel();
@@ -331,21 +331,12 @@ const InputChatContent: React.FC<Props> = (props) => {
           </div>
         )}
         {messages.some((m) => m.role === 'assistant') && (
-        <div className="absolute -top-14 right-0 flex gap-2">
-          {/* Botón de Información */}
-          <Button
-            onClick={() => setShowHelpfulInfo(true)}
-            className="bg-aws-paper p-2 text-sm"
-            outlined
-          >
-            <PiLinkSimple className="mr-2" />
-            {t('Informacion')}
-          </Button>
-
-          {/* Modal cuando se activa */}
-          {showHelpfulInfo && (
-            <HelpfulInfoModal onClose={() => setShowHelpfulInfo(false)} />
-          )}
+          <div className="absolute -top-14 right-0 flex gap-2">
+      
+            {/**Modal de Referencias */}
+            {showHelpfulInfo && (
+              <HelpfulInfoModal onClose={() => setShowHelpfulInfo(false)}/>
+            )}
 
           {/* Botón de Regenerar */}
           {/*  <Button
@@ -357,7 +348,7 @@ const InputChatContent: React.FC<Props> = (props) => {
           <PiArrowsCounterClockwise className="mr-2" />
             {t('button.regenerate')}
           </Button> */} 
-        </div>
+          </div>
         )}
       </div>
     </>
