@@ -55,23 +55,26 @@ const HelpfulInfoModal = () => {
             >
               ✕
             </button>
-            <h2 className="text-xl font-semibold mb-4">¿Qué es la Hiperamonemia?</h2>
+            <h2 className="text-xl font-semibold mb-4">Referencias</h2>
             <div className="text-sm text-gray-700 space-y-4">
-              <p>
-                La hiperamonemia es una condición clínica caracterizada por niveles elevados de amoníaco en sangre, resultado de una alteración en el metabolismo del nitrógeno, particularmente en el ciclo de la urea. Esta condición puede ser hereditaria —como los errores innatos del metabolismo— o adquirida, asociada comúnmente a enfermedades hepáticas severas. El amoníaco, al no poder eliminarse eficazmente, se acumula y atraviesa la barrera hematoencefálica, generando efectos neurotóxicos.
-              </p>
-              <p>
-                Las manifestaciones clínicas pueden variar ampliamente según la etiología y la edad de presentación. En neonatos, puede incluir vómitos, letargo, hipotonía, convulsiones y coma. En adultos, puede cursar con alteraciones del estado mental, confusión, comportamiento anormal o incluso coma hepático. El diagnóstico se confirma mediante la cuantificación de amoníaco sérico y pruebas metabólicas complementarias.
-              </p>
-              <p>
-                El tratamiento de la hiperamonemia requiere una intervención urgente. Las estrategias terapéuticas incluyen la restricción proteica, administración de agentes como benzoato o fenilbutirato de sodio, diálisis en casos severos y, cuando sea aplicable, el tratamiento del trastorno subyacente o incluso trasplante hepático. La intervención temprana es fundamental para reducir el riesgo de secuelas neurológicas permanentes.
-              </p>
-              <p>
-                La evaluación genética puede ser crucial en pacientes con sospecha de defectos congénitos del metabolismo, permitiendo el asesoramiento familiar y la planificación de futuras gestaciones. Por lo tanto, la hiperamonemia no solo representa una urgencia médica, sino también un desafío diagnóstico y terapéutico multidisciplinario.
-              </p>
-              <p>
-                Fuente: Summar, M. L., & Tuchman, M. (2001). <i>Hiperammonemia: diagnosis and management strategies</i>. <b>Pediatrics</b>, 107(4), 726-735. Recuperado de: <a href="https://publications.aap.org/pediatrics/article/107/4/726/66062/Hyperammonemia-Diagnosis-and-Management-Strategies" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">AAP Pediatrics</a>
-              </p>
+              <p className="font-semibold">Fuentes consultadas:</p>
+              <ol className="list-decimal list-inside space-y-1 pl-4 text-gray-600">
+                <li>Rimsha Ali y Shivaraj Nagalli. *Hyperammonemia*. StatPearls, 2023.</li>
+                <li>*Hyperammonaemia: review of the pathophysiology, aetiology and management*. ScienceDirect.</li>
+                <li>*Hyperammonemia: What It Is, Causes, Symptoms & Treatment*. Cleveland Clinic, 2022.</li>
+                <li>Manor et al. *The Pharmabiotic Approach to Treat Hyperammonemia*. PMC.</li>
+                <li>Auron A. & Brophy P.D. *Hyperammonemia in review: pathophysiology, diagnosis and treatment*. Pediatr Nephrol, 2011.</li>
+                <li>*Hyperammonaemia: review of the pathophysiology, aetiology and …*. Pathology Journal (RCPA).</li>
+                <li>*Recommendations for the Diagnosis and Therapeutic Management of Hyperammonaemia*. PMC, 2021.</li>
+                <li>*Severe hyperammonemia from intense skeletal muscle activity*. MD Journal, 2019.</li>
+                <li>*Hyperammonemia: Practice Essentials, Background, Pathophysiology*. Medscape eMedicine.</li>
+                <li>*Drug-induced hyperammonaemia*. Journal of Clinical Pathology.</li>
+                <li>*Hyperammonemia – an overview*. ScienceDirect Topics.</li>
+                <li>*Nonhepatic Hyperammonemia With Septic Shock: Case and Review*. SAGE Journals.</li>
+                <li>*Hyperammonemia Treatment & Management*. Medscape Reference.</li>
+                <li>*Hyperammonemia*. Wikipedia, última actualización 2024.</li>
+                <li>*Consensus guidelines for management of hyperammonaemia*. Nature Reviews Nephrology.</li>
+              </ol>
             </div>
           </div>
         </div>
