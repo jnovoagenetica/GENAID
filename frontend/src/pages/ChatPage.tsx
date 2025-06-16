@@ -27,9 +27,7 @@ import StatusSyncBot from '../components/StatusSyncBot';
 import Alert from '../components/Alert';
 import useBotSummary from '../hooks/useBotSummary';
 import useModel from '../hooks/useModel';
-
 import { motion, AnimatePresence } from 'framer-motion';
-
 
 const MISTRAL_ENABLED: boolean = import.meta.env.VITE_APP_ENABLE_MISTRAL === 'true';
 
@@ -55,9 +53,7 @@ const ChatPage: React.FC = () => {
 
   const { scrollToBottom, scrollToTop } = useScroll();
 
-  const { conversationId: paramConversationId, botId: paramBotId } =
-    useParams();
-
+  const { conversationId: paramConversationId, botId: paramBotId } =useParams();
   const botId = useMemo(() => {
     return paramBotId ?? getBotId(conversationId);
   }, [conversationId, getBotId, paramBotId]);
@@ -175,18 +171,17 @@ const ChatPage: React.FC = () => {
 
   const onClickStar = useCallback(() => {
     if (!bot) {
-      return;
+      return; 
     }
     const isStarred = !bot.isPinned;
     mutateBot(
       produce(bot, (draft) => {
         draft.isPinned = isStarred;
       }),
-      {
-        revalidate: false,
+      { 
+        revalidate: false, 
       }
     );
-
     try {
       if (bot.owned) {
         updateMyBotStarred(bot.id, isStarred);
@@ -220,7 +215,7 @@ const ChatPage: React.FC = () => {
     (e) => {
       if (!disabledImageUpload) {
         setDndMode(true);
-      }
+        }
       e.preventDefault();
     },
     [disabledImageUpload]
@@ -233,17 +228,17 @@ const ChatPage: React.FC = () => {
   const [showLogoHeader, setShowLogoHeader] = useState(false);
 
   return (
-  <div className="bg-[#D4EEF3] min-h-screen" onDragOver={onDragOver} onDrop={endDnd} onDragEnd={endDnd}>
-    <div className="relative h-14 w-full">
-      <div className="flex w-full justify-between">
-        <div className="p-2">
-          <div className="mr-10 font-bold">{pageTitle}</div>
-          <div className="text-xs font-thin text-dark-black">
-            {description}
+    <div className="bg-[#D4EEF3] min-h-screen" onDragOver={onDragOver} onDrop={endDnd} onDragEnd={endDnd}>
+      <div className="relative h-14 w-full">
+        <div className="flex w-full justify-between">
+          <div className="p-2">
+            <div className="mr-10 font-bold">{pageTitle}</div>
+            <div className="text-xs font-thin text-dark-black">
+              {description}
+              </div>
           </div>
-        </div>
 
-        {/* {isAvailabilityBot && (
+           {/* {isAvailabilityBot && (
           <div className="absolute -top-1 right-0 flex h-full items-center">
             <div className="h-full w-5 bg-gradient-to-r from-transparent to-aws-paper"></div>
             <div className="flex items-center bg-aws-paper">
@@ -287,124 +282,128 @@ const ChatPage: React.FC = () => {
             </div>
           </div>
         )} */}
-      </div>
-      {/* {getPostedModel() && (
+        </div>
+       
+        
+        {/* {getPostedModel() && (
         <div className="absolute right-2 top-10 text-xs text-dark-gray">
           model: {getPostedModel()}
         </div>
       )} */}
-    </div>
-
-    <hr className="w-full border-t border-gray" />
-
-    <div className="pb-52 lg:pb-40">
-      {messages.length === 0 ? (
-        <div className="relative flex w-full flex-col items-center">
-          {!loadingConversation && (
-            <SwitchBedrockModel className="mt-3 w-min" />
-          )}
-
-          {/* Animación del logo desde carpeta public */}
-          <motion.div
-            initial={false}
-            animate={
-              messages.length === 0
-                ? { scale: 1.8, position: 'fixed', top: '50%', left: '50%', x: '-45%', y: '-80%'}
-                : { scale: 0.6, position: 'fixed', top: 20, left: '50%', x: '-50%', y: 0}
-            }
-            transition={{ type: 'spring', stiffness: 100, damping: 20}}
-            className="z-20 flex w-full justify-center pointer-events-none"
-          >
-            <img src="/Gentica_Humana.png" alt="Logo Genetica Humana" className="w-auto max-w-xs" />
-          </motion.div>
-
-          {/**Documentamos la linea donde aparece el texto en pantalla */}
-          {/**
-            <div className="absolute mx-3 my-20 flex items-center justify-center text-4xl font-bold text-gray">
-            {!MISTRAL_ENABLED ? t('app.name') : t('app.nameWithoutClaude')}
-          </div>
-           */}
-        </div>
-      ) : (
-        messages.map((message, idx) => (
-          <div
-            key={idx}
-            className={`${
-              message.role === 'assistant' ? 'bg-[#A3D1E4]' : ''
-            }`}>
-            <ChatMessage
-              chatContent={message}
-              onChangeMessageId={onChangeCurrentMessageId}
-              onSubmit={onSubmitEditedContent}
-            />
-            <div className="w-full border-b border-aws-squid-ink/10"></div>
-          </div>
-        ))
-      )}
-      
-      {hasError && (
-        <div className="mb-12 mt-2 flex flex-col items-center">
-          <div className="flex items-center font-bold text-red">
-            <PiWarningCircleFill className="mr-1 text-2xl" />
-            {t('error.answerResponse')}
-          </div>
-
-          <Button
-            className="mt-2 shadow"
-            icon={<PiArrowsCounterClockwise />}
-            outlined
-            onClick={() => {
-              retryPostChat({
-                bot: inputBotParams,
-              });
-            }}>
-            {t('button.resend')}
-          </Button>
-        </div>
-      )}
-    </div>
-
-    {postingMessage && (
-      <div className='flex justify-center items-center mb-6 text-sm text-gray-700 animate-pulse'>
-        🧠 Pensando...
+        
+        
       </div>
-    )}
 
-    <div className="absolute bottom-0 z-0 flex w-full flex-col items-center justify-center">
-      {bot && bot.syncStatus !== 'SUCCEEDED' && (
-        <div className="mb-8 w-1/2">
-          <Alert
-            severity="warning"
-            title={t('bot.alert.sync.incomplete.title')}>
-            {t('bot.alert.sync.incomplete.body')}
-          </Alert>
-        </div>
-      )}
-      <div className='mb-5 w-full flex justify-center'>
+      <hr className="w-full border-t border-gray" />
+
+      {/* Contenedor de mensajes con scroll */}
+      <div className="pb-52 lg:pb-40">
+        {messages.length === 0 ? (
+          <div className="relative flex w-full flex-col items-center">
+            {!loadingConversation && (
+            <SwitchBedrockModel className="mt-3 w-min" />
+            )}
+           {/* Animación del logo desde carpeta public */}
+            <motion.div
+              initial={false}
+              animate={
+                messages.length === 0
+                  ? { scale: 1.8, position: 'fixed', top: '50%', left: '50%', x: '-45%', y: '-80%'}
+                  : { scale: 0.6, position: 'fixed', top: 20, left: '50%', x: '-50%', y: 0}
+              }
+              transition={{ type: 'spring', stiffness: 100, damping: 20}}
+              className="z-20 flex w-full justify-center pointer-events-none"
+            >
+              <img src="/Gentica_Humana.png" alt="Logo Genetica Humana" className="w-auto max-w-xs" />
+            </motion.div>
+
+            {/**Documentamos la linea donde aparece el texto en pantalla */}
+            {/**
+              <div className="absolute mx-3 my-20 flex items-center justify-center text-4xl font-bold text-gray">
+              {!MISTRAL_ENABLED ? t('app.name') : t('app.nameWithoutClaude')}
+            </div>
+             */}
+          </div>
+        ) : (
+          messages.map((message, idx) => (
+            <div 
+              key={idx}
+              className={`${
+                message.role === 'assistant' ? 'bg-[#A3D1E4]' : ''
+                }`}>
+              <ChatMessage
+                chatContent={message}
+                onChangeMessageId={onChangeCurrentMessageId}
+                onSubmit={onSubmitEditedContent}
+              />
+              <div className="w-full border-b border-aws-squid-ink/10"></div>
+            </div>
+          ))
+        )}
+
+        {hasError && (
+          <div className="mb-12 mt-2 flex flex-col items-center">
+            <div className="flex items-center font-bold text-red">
+              <PiWarningCircleFill className="mr-1 text-2xl" />
+              {t('error.answerResponse')}
+            </div>
+
+            <Button
+              className="mt-2 shadow"
+              icon={<PiArrowsCounterClockwise />}
+              outlined
+              onClick={() => {
+                retryPostChat({
+                  bot: inputBotParams, 
+                });
+              }}>
+              {t('button.resend')}
+            </Button>
+          </div>
+        )}
+        
+
+        {postingMessage && (
+          <div className='flex justify-center items-center mb-6 text-sm text-gray-700 animate-pulse'>
+            🧠 Pensando...
+          </div>
+        )}
+      </div>
+
+      {/* Barra inferior fija  */}
+      <div className="absolute bottom-0 bg-[#D4EEF3] pt-4 pb-0 z-0 flex w-full flex-col items-center justify-center">
+        {bot && bot.syncStatus !== 'SUCCEEDED' && (
+          <div className="mb-8 w-1/2">
+            <Alert 
+              severity="warning"
+              title={t('bot.alert.sync.incomplete.title')}>
+              {t('bot.alert.sync.incomplete.body')}
+            </Alert>
+          </div>
+        )}
+         <div className='mb-5 w-full flex justify-center'>
         <InputChatContent
           dndMode={dndMode}
           disabledSend={postingMessage}
           disabled={disabledInput}
           placeholder={
             disabledInput
-              ? t('bot.label.notAvailableBotInputMessage')
-              : undefined
+             ? t('bot.label.notAvailableBotInputMessage') 
+             : undefined
           }
           onSend={onSend}
           onRegenerate={onRegenerate}
         />
-      </div>
-      <div className='fixed bottom-2 w-full flex justify-center z-10 pointer-events-none'>
-        <span className='ml-2'>Copyright Genética Humana E.U. 2025</span>
-        <img src="/Gentica_Humana.png" alt="Logo Genetica" className='h-7 w-auto opacity-80 ml-2'/>
-        <span className='ml-2'>Powered by Norsoft S.A.S.</span>
-        <img src="/LogoNorSoft.png" alt="Logo NorSoft" className='h-7 w-auto opacity-80 ml-2' />
+        </div>
+        <div className='fixed bottom-2 w-full flex justify-center z-10 pointer-events-none'>
+          <span className='ml-2'>Copyright Genética Humana E.U. 2025</span>
+          <img src="/Gentica_Humana.png" alt="Logo Genetica" className='h-7 w-auto opacity-80 ml-2'/>
+          <span className='ml-2'>Powered by Norsoft S.A.S.</span>
+          <img src="/LogoNorSoft.png" alt="Logo NorSoft" className='h-7 w-auto opacity-80 ml-2' />
+        </div>
       </div>
     </div>
-  </div>
-);
-
+  );
 };
 
 export default ChatPage;
-
