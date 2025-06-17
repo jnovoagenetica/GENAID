@@ -62,7 +62,7 @@ const Menu: React.FC<Props> = (props) => {
     <>
       <Button
         ref={buttonRef}
-        className="relative bg-aws-squid-ink"
+        className="relative bg-menu-header"
         text
         icon={<PiList />}
         onClick={() => {

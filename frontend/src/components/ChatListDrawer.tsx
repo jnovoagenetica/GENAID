@@ -35,6 +35,7 @@ import useBot from '../hooks/useBot';
 import DrawerItem from './DrawerItem';
 import ExpandableDrawerGroup from './ExpandableDrawerGroup';
 import useUser from '../hooks/useUser';
+import { ComponentClassNames } from '@aws-amplify/ui-react';
 
 type Props = BaseProps & {
   onSignOut: () => void;
@@ -116,7 +117,7 @@ const Item: React.FC<ItemProps> = (props) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing]);
 
-  return (
+  return ( 
     <DrawerItem
       isActive={active}
       isBlur={!editing}
@@ -293,12 +294,13 @@ const ChatListDrawer: React.FC<Props> = (props) => {
         onDelete={deleteChat}
         onClose={() => setIsOpenDeleteModal(false)}
       />
-      <div className="relative h-full overflow-y-auto bg-aws-squid-ink scrollbar-thin scrollbar-track-white scrollbar-thumb-aws-squid-ink/30 ">
+      <div className="relative h-full overflow-y-auto bg-menu-header scrollbar-thin scrollbar-track-white scrollbar-thumb-menu-header/30">
+
         <nav
-          className={`lg:visible lg:w-64 ${
+          className={`relative lg:visible lg:w-80 ${
             opened ? 'visible w-64' : 'invisible w-0'
-          } text-sm  text-white transition-width`}>
-          <div className="absolute top-0 w-full overflow-y-auto overflow-x-hidden pb-12">
+          } `}>
+          <div className="w-full overflow-y-auto pb-24">
             <DrawerItem
               isActive={false}
               icon={<PiNotePencil />}
@@ -306,13 +308,13 @@ const ChatListDrawer: React.FC<Props> = (props) => {
               onClick={onClickNewChat}
               labelComponent={t('button.newChat')}
             />
-            <DrawerItem
+            {/*<DrawerItem
               isActive={false}
               icon={<PiCompass />}
               to="bot/explore"
               labelComponent={t('button.botConsole')}
-            />
-            {isAdmin && (
+            />*/}
+            {/*{isAdmin && (
               <ExpandableDrawerGroup
                 label={t('app.adminConsoles')}
                 className="border-t pt-1">
@@ -333,9 +335,9 @@ const ChatListDrawer: React.FC<Props> = (props) => {
                   icon={<PiUsersThree />}
                   to="admin/user-usages"
                   labelComponent={t('button.userUsages')}
-                /> */}
+                /> 
               </ExpandableDrawerGroup>
-            )}
+            )}*/}
 
             <ExpandableDrawerGroup
               label={t('app.starredBots')}
@@ -352,7 +354,7 @@ const ChatListDrawer: React.FC<Props> = (props) => {
               ))}
             </ExpandableDrawerGroup>
 
-            <ExpandableDrawerGroup
+            {/*<ExpandableDrawerGroup
               label={t('app.recentlyUsedBots')}
               className="border-t pt-1">
               {recentlyUsedUnsterredBots
@@ -367,7 +369,7 @@ const ChatListDrawer: React.FC<Props> = (props) => {
                     onClick={onClickNewBotChat}
                   />
                 ))}
-            </ExpandableDrawerGroup>
+            </ExpandableDrawerGroup>*/}
 
             <ExpandableDrawerGroup
               label={t('app.conversationHistory')}
@@ -394,10 +396,12 @@ const ChatListDrawer: React.FC<Props> = (props) => {
           <div
             className={`${
               opened ? 'w-64' : 'w-0'
-            } fixed bottom-0 flex h-12 items-center justify-start border-t bg-aws-squid-ink transition-width lg:w-64`}>
+            } fixed bottom-0 flex h-12 items-center justify-start border-t bg-menu-header transition-width lg:w-64`}>
             <Menu onSignOut={props.onSignOut} />
           </div>
         </nav>
+        
+
       </div>
 
       <div
@@ -417,3 +421,4 @@ const ChatListDrawer: React.FC<Props> = (props) => {
 };
 
 export default ChatListDrawer;
+

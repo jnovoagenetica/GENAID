@@ -20,6 +20,11 @@ import { create } from 'zustand';
 import ButtonFileChoose from './ButtonFileChoose';
 import { BaseProps } from '../@types/common';
 import ModalDialog from './ModalDialog';
+import HelpfulInfoModal from './HelpfulInfoModal';
+import { PiLinkSimple } from "react-icons/pi";
+
+
+
 
 type Props = BaseProps & {
   disabledSend?: boolean;
@@ -29,6 +34,7 @@ type Props = BaseProps & {
   onSend: (content: string, base64EncodedImages?: string[]) => void;
   onRegenerate: () => void;
 };
+
 
 const MAX_IMAGE_WIDTH = 800;
 const MAX_IMAGE_HEIGHT = 800;
@@ -74,6 +80,7 @@ const useInputChatContentState = create<{
 }));
 
 const InputChatContent: React.FC<Props> = (props) => {
+  const [showHelpfulInfo, setShowHelpfulInfo] = useState(true);
   const { t } = useTranslation();
   const { postingMessage, hasError, messages } = useChat();
   const { disabledImageUpload, model, acceptMediaType } = useModel();
@@ -233,6 +240,8 @@ const InputChatContent: React.FC<Props> = (props) => {
     [onChangeImageFile]
   );
 
+  
+
   return (
     <>
       {props.dndMode && (
@@ -246,7 +255,7 @@ const InputChatContent: React.FC<Props> = (props) => {
         onDrop={onDrop}
         className={twMerge(
           props.className,
-          'relative mb-7 flex w-11/12 flex-col rounded-xl border border-black/10 bg-white shadow-[0_0_30px_7px] shadow-light-gray md:w-10/12 lg:w-4/6 xl:w-3/6'
+          'relative mb-7 flex w-11/12 flex-col rounded-xl border border-black/10 bg-white shadow-[0_0_30px_7px] shadow-light-gray/15 md:w-10/12 lg:w-4/6 xl:w-3/6'
         )}>
         <div className="flex w-full">
           <Textarea
@@ -321,15 +330,25 @@ const InputChatContent: React.FC<Props> = (props) => {
             </ModalDialog>
           </div>
         )}
-        {messages.length > 1 && (
-          <Button
-            className="absolute -top-14 right-0 bg-aws-paper p-2 text-sm"
+        {messages.some((m) => m.role === 'assistant') && (
+          <div className="absolute -top-14 right-0 flex gap-2">
+      
+            {/**Modal de Referencias */}
+            {showHelpfulInfo && (
+              <HelpfulInfoModal onClose={() => setShowHelpfulInfo(false)}/>
+            )}
+
+          {/* Botón de Regenerar */}
+          {/*  <Button
+            className="bg-aws-paper p-2 text-sm"
             outlined
             disabled={disabledRegenerate || props.disabled}
-            onClick={props.onRegenerate}>
-            <PiArrowsCounterClockwise className="mr-2" />
+            onClick={props.onRegenerate}
+          >
+          <PiArrowsCounterClockwise className="mr-2" />
             {t('button.regenerate')}
-          </Button>
+          </Button> */} 
+          </div>
         )}
       </div>
     </>

@@ -55,16 +55,19 @@ const AuthCustom: React.FC<Props> = ({ children }) => {
           </div>
         </div>
       ) : !authenticated ? (
-        <div className="flex flex-col items-center gap-4">
-          <div className="mb-5 mt-10 text-4xl text-aws-sea-blue">
-            {!MISTRAL_ENABLED ? t('app.name') : t('app.nameWithoutClaude')}
-          </div>
-          <Button onClick={() => signIn()} className="px-20 text-xl">
+        //Aqui intentamos modificar el login del chat
+       <div className="min-h-screen w-full flex items-center justify-center bg-soft-cyan px-4">
+          <div className="bg-login-bg rounded-2xl shadow-lg p-8 flex flex-col items-center w-full max-w-md">
+            <div className="mb-5 text-4xl text-aws-sea-blue">
+              
+          {!MISTRAL_ENABLED ? t('app.name') : t('app.nameWithoutClaude')}
+            </div>
+          <Button onClick={signIn} className="px-20 text-xl">
             {t('signIn.button.login')}
           </Button>
+          </div>
         </div>
       ) : (
-        // Pass the signOut function to the child component
         <>{cloneElement(children as ReactElement, { signOut })}</>
       )}
     </>
