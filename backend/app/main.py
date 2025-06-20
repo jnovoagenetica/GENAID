@@ -3,6 +3,10 @@ import os
 import traceback
 from typing import Callable
 
+# 👇 Carga variables de entorno desde .env.local
+from dotenv import load_dotenv
+load_dotenv(dotenv_path=".env.local")
+
 from app.dependencies import get_current_user
 from app.repositories.common import (
     RecordAccessNotAllowedError,

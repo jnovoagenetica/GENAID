@@ -69,6 +69,7 @@ class BotModifyInput(BaseSchema):
     search_params: SearchParams | None
     knowledge: KnowledgeDiffInput | None
     display_retrieved_chunks: bool
+    model: str
 
     def has_update_files(self) -> bool:
         return self.knowledge is not None and (
