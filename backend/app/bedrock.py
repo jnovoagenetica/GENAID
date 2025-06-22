@@ -178,7 +178,7 @@ def get_model_id(model: str | None) -> str:
     elif model == "claude-v3-sonnet":
         return "anthropic.claude-3-sonnet-20240229-v1:0"
     elif model == "claude-v3.5-sonnet":
-        return "anthropic.claude-3.5-sonnet-20250612-v1:0"
+        return "anthropic.claude-3-5-sonnet-20240620-v1:0"
     elif model == "claude-v3-haiku":
         return "anthropic.claude-3-haiku-20240307-v1:0"
     elif model == "claude-v3-opus":

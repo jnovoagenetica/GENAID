@@ -1,3 +1,5 @@
+# backend/app/config.py
+
 from typing import TypedDict
 
 
@@ -52,60 +54,46 @@ DEFAULT_SEARCH_CONFIG = {
 }
 
 # Used for price estimation.
-# NOTE: The following is based on 2024-03-07
+# NOTE: The following is based on 2024-06-20
 # See: https://aws.amazon.com/bedrock/pricing/
 BEDROCK_PRICING = {
     "us-east-1": {
-        "claude-instant-v1": {
-            "input": 0.00080,
-            "output": 0.00240,
-        },
-        "claude-v2": {
-            "input": 0.00080,
-            "output": 0.00240,
-        },
+        "claude-instant-v1": {"input": 0.00080, "output": 0.00240},
+        "claude-v2": {"input": 0.00800, "output": 0.02400}, # PRECIO CORREGIDO
         "claude-v3-haiku": {"input": 0.00025, "output": 0.00125},
         "claude-v3-sonnet": {"input": 0.00300, "output": 0.01500},
+        "claude-v3.5-sonnet": {"input": 0.00300, "output": 0.01500}, # TU CORRECCIÓN (ESTÁ BIEN)
+        "claude-v3-opus": {"input": 0.01500, "output": 0.07500},
         "mistral-7b-instruct": {"input": 0.00015, "output": 0.0002},
         "mixtral-8x7b-instruct": {"input": 0.00045, "output": 0.0007},
         "mistral-large": {"input": 0.008, "output": 0.024},
     },
     "us-west-2": {
-        "claude-instant-v1": {
-            "input": 0.00080,
-            "output": 0.00240,
-        },
-        "claude-v2": {
-            "input": 0.00080,
-            "output": 0.00240,
-        },
+        "claude-instant-v1": {"input": 0.00080, "output": 0.00240},
+        "claude-v2": {"input": 0.00800, "output": 0.02400}, # PRECIO CORREGIDO
+        "claude-v3-haiku": {"input": 0.00025, "output": 0.00125},
         "claude-v3-sonnet": {"input": 0.00300, "output": 0.01500},
+        "claude-v3.5-sonnet": {"input": 0.00300, "output": 0.01500}, # TU CORRECCIÓN (ESTÁ BIEN)
         "claude-v3-opus": {"input": 0.01500, "output": 0.07500},
         "mistral-7b-instruct": {"input": 0.00015, "output": 0.0002},
         "mixtral-8x7b-instruct": {"input": 0.00045, "output": 0.0007},
         "mistral-large": {"input": 0.008, "output": 0.024},
     },
     "ap-northeast-1": {
-        "claude-instant-v1": {
-            "input": 0.00080,
-            "output": 0.00240,
-        },
-        "claude-v2": {
-            "input": 0.00080,
-            "output": 0.00240,
-        },
-    },
-    "default": {
-        "claude-instant-v1": {
-            "input": 0.00080,
-            "output": 0.00240,
-        },
-        "claude-v2": {
-            "input": 0.00080,
-            "output": 0.00240,
-        },
+        "claude-instant-v1": {"input": 0.00080, "output": 0.00240},
+        "claude-v2": {"input": 0.00800, "output": 0.02400}, # PRECIO CORREGIDO
         "claude-v3-haiku": {"input": 0.00025, "output": 0.00125},
         "claude-v3-sonnet": {"input": 0.00300, "output": 0.01500},
+        "claude-v3.5-sonnet": {"input": 0.00300, "output": 0.01500}, # TU CORRECCIÓN (ESTÁ BIEN)
+        "claude-v3-opus": {"input": 0.01500, "output": 0.07500},
+    },
+    # Fallback default prices
+    "default": {
+        "claude-instant-v1": {"input": 0.00080, "output": 0.00240},
+        "claude-v2": {"input": 0.00800, "output": 0.02400}, # PRECIO CORREGIDO
+        "claude-v3-haiku": {"input": 0.00025, "output": 0.00125},
+        "claude-v3-sonnet": {"input": 0.00300, "output": 0.01500},
+        "claude-v3.5-sonnet": {"input": 0.00300, "output": 0.01500}, # TU CORRECCIÓN (ESTÁ BIEN)
         "claude-v3-opus": {"input": 0.01500, "output": 0.07500},
         "mistral-7b-instruct": {"input": 0.00015, "output": 0.0002},
         "mixtral-8x7b-instruct": {"input": 0.00045, "output": 0.0007},
