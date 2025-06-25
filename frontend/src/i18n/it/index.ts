@@ -6,7 +6,7 @@ const translation = {
       },
     },
     app: {
-      name: 'GenAID',
+      name: 'GHeneAId',
       inputMessage: 'Inviare un messaggio',
       starredBots: 'Bot preferiti',
       recentlyUsedBots: 'Bot utilizzati di recente',

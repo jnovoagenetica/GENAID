@@ -398,6 +398,7 @@ const ChatPage: React.FC = () => {
         <div className='fixed bottom-2 w-full flex justify-center z-10 pointer-events-none'>
           <span className='ml-2'>Copyright Genética Humana E.U. 2025</span>
           <img src="/Gentica_Humana.png" alt="Logo Genetica" className='h-7 w-auto opacity-80 ml-2'/>
+          <img src="/GeneticaLogoAid.png" alt="Logo Genetica" className='h-7 w-auto opacity-80 ml-2'/>
           <span className='ml-2'>Powered by Norsoft S.A.S.</span>
           <img src="/LogoNorSoft.png" alt="Logo NorSoft" className='h-7 w-auto opacity-80 ml-2' />
         </div>
