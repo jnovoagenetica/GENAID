@@ -8,8 +8,7 @@ import React, {
 import ButtonSend from './ButtonSend';
 import Textarea from './Textarea';
 import useChat from '../hooks/useChat';
-import Button from './Button';
-import { PiArrowsCounterClockwise, PiX } from 'react-icons/pi';
+import { PiX } from 'react-icons/pi';
 import { TbPhotoPlus } from 'react-icons/tb';
 import { useTranslation } from 'react-i18next';
 import ButtonIcon from './ButtonIcon';
@@ -21,10 +20,6 @@ import ButtonFileChoose from './ButtonFileChoose';
 import { BaseProps } from '../@types/common';
 import ModalDialog from './ModalDialog';
 import HelpfulInfoModal from './HelpfulInfoModal';
-import { PiLinkSimple } from "react-icons/pi";
-
-
-
 
 type Props = BaseProps & {
   disabledSend?: boolean;
@@ -80,7 +75,7 @@ const useInputChatContentState = create<{
 }));
 
 const InputChatContent: React.FC<Props> = (props) => {
-  const [showHelpfulInfo, setShowHelpfulInfo] = useState(true);
+  const [showHelpfulInfo] = useState(true);
   const { t } = useTranslation();
   const { postingMessage, hasError, messages } = useChat();
   const { disabledImageUpload, model, acceptMediaType } = useModel();
@@ -106,9 +101,6 @@ const InputChatContent: React.FC<Props> = (props) => {
     return content === '' || props.disabledSend || hasError;
   }, [hasError, content, props.disabledSend]);
 
-  const disabledRegenerate = useMemo(() => {
-    return postingMessage || hasError;
-  }, [hasError, postingMessage]);
 
   const inputRef = useRef<HTMLDivElement>(null);
 
@@ -298,6 +290,7 @@ const InputChatContent: React.FC<Props> = (props) => {
                     setPreviewImageUrl(imageFile);
                     setIsOpenPreviewImage(true);
                   }}
+                  alt={`preview ${idx}`}
                 />
                 <ButtonIcon
                   className="absolute right-0 top-0 -m-2 border border-aws-sea-blue bg-white p-1 text-xs text-aws-sea-blue"
@@ -325,6 +318,7 @@ const InputChatContent: React.FC<Props> = (props) => {
                 <img
                   src={previewImageUrl}
                   className="mx-auto max-h-[80vh] max-w-full rounded-md"
+                  alt='Preview'
                 />
               )}
             </ModalDialog>
@@ -335,7 +329,7 @@ const InputChatContent: React.FC<Props> = (props) => {
       
             {/**Modal de Referencias */}
             {showHelpfulInfo && (
-              <HelpfulInfoModal onClose={() => setShowHelpfulInfo(false)}/>
+              <HelpfulInfoModal />
             )}
 
           {/* Botón de Regenerar */}

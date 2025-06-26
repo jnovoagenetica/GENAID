@@ -3,37 +3,29 @@ import InputChatContent from '../components/InputChatContent';
 import useChat from '../hooks/useChat';
 import ChatMessage from '../components/ChatMessage';
 import useScroll from '../hooks/useScroll';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import {
   PiArrowsCounterClockwise,
-  PiLink,
-  PiPencilLine,
-  PiStar,
-  PiStarFill,
   PiWarningCircleFill,
 } from 'react-icons/pi';
 import Button from '../components/Button';
 import { useTranslation } from 'react-i18next';
 import SwitchBedrockModel from '../components/SwitchBedrockModel';
-import useBot from '../hooks/useBot';
+// import useBot from '../hooks/useBot';
 import useConversation from '../hooks/useConversation';
-import ButtonPopover from '../components/PopoverMenu';
-import PopoverItem from '../components/PopoverItem';
 
-import { copyBotUrl } from '../utils/BotUtils';
-import { produce } from 'immer';
-import ButtonIcon from '../components/ButtonIcon';
-import StatusSyncBot from '../components/StatusSyncBot';
+
+//import { copyBotUrl } from '../utils/BotUtils';
+//import { produce } from 'immer';
 import Alert from '../components/Alert';
 import useBotSummary from '../hooks/useBotSummary';
 import useModel from '../hooks/useModel';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 
-const MISTRAL_ENABLED: boolean = import.meta.env.VITE_APP_ENABLE_MISTRAL === 'true';
 
 const ChatPage: React.FC = () => {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  // const navigate = useNavigate();
 
   const {
     postingMessage,
@@ -45,7 +37,6 @@ const ChatPage: React.FC = () => {
     retryPostChat,
     setCurrentMessageId,
     regenerate,
-    getPostedModel,
     loadingConversation,
   } = useChat();
 
@@ -53,7 +44,7 @@ const ChatPage: React.FC = () => {
 
   const { scrollToBottom, scrollToTop } = useScroll();
 
-  const { conversationId: paramConversationId, botId: paramBotId } =useParams();
+  const { conversationId: paramConversationId, botId: paramBotId } = useParams();
   const botId = useMemo(() => {
     return paramBotId ?? getBotId(conversationId);
   }, [conversationId, getBotId, paramBotId]);
@@ -62,7 +53,7 @@ const ChatPage: React.FC = () => {
     data: bot,
     error: botError,
     isLoading: isLoadingBot,
-    mutate: mutateBot,
+    //mutate: mutateBot,
   } = useBotSummary(botId ?? undefined);
 
   const [pageTitle, setPageTitle] = useState('');
@@ -161,53 +152,47 @@ const ChatPage: React.FC = () => {
     }
   }, [messages, scrollToBottom, scrollToTop]);
 
-  const { updateMyBotStarred, updateSharedBotStarred } = useBot();
-  const onClickBotEdit = useCallback(
-    (botId: string) => {
-      navigate(`/bot/edit/${botId}`);
-    },
-    [navigate]
-  );
+  // const { updateMyBotStarred, updateSharedBotStarred } = useBot();
 
-  const onClickStar = useCallback(() => {
-    if (!bot) {
-      return; 
-    }
-    const isStarred = !bot.isPinned;
-    mutateBot(
-      produce(bot, (draft) => {
-        draft.isPinned = isStarred;
-      }),
-      { 
-        revalidate: false, 
-      }
-    );
-    try {
-      if (bot.owned) {
-        updateMyBotStarred(bot.id, isStarred);
-      } else {
-        updateSharedBotStarred(bot.id, isStarred);
-      }
-    } finally {
-      mutateBot();
-    }
-  }, [bot, mutateBot, updateMyBotStarred, updateSharedBotStarred]);
+  // const onClickStar = useCallback(() => {
+  //   if (!bot) {
+  //     return; 
+  //   }
+  //   const isStarred = !bot.isPinned;
+  //   mutateBot(
+  //     produce(bot, (draft) => {
+  //       draft.isPinned = isStarred;
+  //     }),
+  //     { 
+  //       revalidate: false, 
+  //     }
+  //   );
+  //   try {
+  //     if (bot.owned) {
+  //       updateMyBotStarred(bot.id, isStarred);
+  //     } else {
+  //       updateSharedBotStarred(bot.id, isStarred);
+  //     }
+  //   } finally {
+  //     mutateBot();
+  //   }
+  // }, [bot, mutateBot, updateMyBotStarred, updateSharedBotStarred]);
 
-  const [copyLabel, setCopyLabel] = useState(t('bot.titleSubmenu.copyLink'));
-  const onClickCopyUrl = useCallback(
-    (botId: string) => {
-      copyBotUrl(botId);
-      setCopyLabel(t('bot.titleSubmenu.copiedLink'));
-      setTimeout(() => {
-        setCopyLabel(t('bot.titleSubmenu.copyLink'));
-      }, 3000);
-    },
-    [t]
-  );
+  // const [copyLabel, setCopyLabel] = useState(t('bot.titleSubmenu.copyLink'));
+  // const onClickCopyUrl = useCallback(
+  //   (botId: string) => {
+  //     copyBotUrl(botId);
+  //     setCopyLabel(t('bot.titleSubmenu.copiedLink'));
+  //     setTimeout(() => {
+  //       setCopyLabel(t('bot.titleSubmenu.copyLink'));
+  //     }, 3000);
+  //   },
+  //   [t]
+  // );
 
-  const onClickSyncError = useCallback(() => {
-    navigate(`/bot/edit/${bot?.id}`);
-  }, [bot?.id, navigate]);
+  // const onClickSyncError = useCallback(() => {
+  //   navigate(`/bot/edit/${bot?.id}`);
+  // }, [bot?.id, navigate]);
 
   const { disabledImageUpload } = useModel();
   const [dndMode, setDndMode] = useState(false);
@@ -225,15 +210,13 @@ const ChatPage: React.FC = () => {
     e.preventDefault();
   }, []);
 
-  const [showLogoHeader, setShowLogoHeader] = useState(false);
-
   return (
     <div className="bg-[#D4EEF3] min-h-screen" onDragOver={onDragOver} onDrop={endDnd} onDragEnd={endDnd}>
       <div className="relative h-14 w-full">
         <div className="flex w-full justify-between">
           <div className="p-2">
             <div className="mr-10 font-bold">{pageTitle}</div>
-            <div className="text-xs font-thin text-dark-black">
+            <div className="text-xs font-thin text-dark-black ">
               {description}
               </div>
           </div>

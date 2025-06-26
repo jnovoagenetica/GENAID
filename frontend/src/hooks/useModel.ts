@@ -3,7 +3,6 @@ import { Model } from '../@types/conversation';
 import { useMemo } from 'react';
 
 // Solo Claude 3.5 (Sonnet) disponible
-const MISTRAL_ENABLED: boolean = import.meta.env.VITE_APP_ENABLE_MISTRAL === 'true';
 const availableModels = [
   {
     modelId: 'claude-v3.5-sonnet',
@@ -15,7 +14,7 @@ const availableModels = [
 const useModelState = create<{
   modelId: Model;
   setModelId: (m: Model) => void;
-}>((set) => ({
+}>((_set) => ({
   modelId: 'claude-v3.5-sonnet',
   setModelId: (_m) => {
     console.warn('Cambio de modelo bloqueado. Solo se permite Claude 3.5 (Sonnet).');

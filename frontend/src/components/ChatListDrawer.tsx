@@ -13,12 +13,9 @@ import ButtonIcon from './ButtonIcon';
 import {
   PiChat,
   PiCheck,
-  PiCompass,
-  PiGlobe,
   PiNotePencil,
   PiPencilLine,
   PiRobot,
-  PiShareNetwork,
   PiTrash,
   PiX,
 } from 'react-icons/pi';
@@ -34,8 +31,6 @@ import Menu from './Menu';
 import useBot from '../hooks/useBot';
 import DrawerItem from './DrawerItem';
 import ExpandableDrawerGroup from './ExpandableDrawerGroup';
-import useUser from '../hooks/useUser';
-import { ComponentClassNames } from '@aws-amplify/ui-react';
 
 type Props = BaseProps & {
   onSignOut: () => void;
@@ -117,7 +112,7 @@ const Item: React.FC<ItemProps> = (props) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing]);
 
-  return ( 
+  return (
     <DrawerItem
       isActive={active}
       isBlur={!editing}
@@ -185,9 +180,9 @@ const ChatListDrawer: React.FC<Props> = (props) => {
   const { t } = useTranslation();
   const { opened, switchOpen } = useDrawer();
   const { conversations } = useConversation();
-  const { starredBots, recentlyUsedUnsterredBots } = useBot();
+  const { starredBots } = useBot();
 
-  const { isAdmin } = useUser();
+  // const { isAdmin } = useUser();
 
   const [prevConversations, setPrevConversations] =
     useState<typeof conversations>();
@@ -295,7 +290,6 @@ const ChatListDrawer: React.FC<Props> = (props) => {
         onClose={() => setIsOpenDeleteModal(false)}
       />
       <div className="relative h-full overflow-y-auto bg-menu-header scrollbar-thin scrollbar-track-white scrollbar-thumb-menu-header/30">
-
         <nav
           className={`relative lg:visible lg:w-80 ${
             opened ? 'visible w-64' : 'invisible w-0'
@@ -395,13 +389,11 @@ const ChatListDrawer: React.FC<Props> = (props) => {
 
           <div
             className={`${
-              opened ? 'w-64' : 'w-0'
-            } fixed bottom-0 flex h-12 items-center justify-start border-t bg-menu-header transition-width lg:w-64`}>
+              opened ? 'w-full' : 'w-full'
+            } fixed bottom-0 flex h-12 items-center justify-start border-t border-r transition-width`}>
             <Menu onSignOut={props.onSignOut} />
           </div>
         </nav>
-        
-
       </div>
 
       <div
@@ -421,4 +413,3 @@ const ChatListDrawer: React.FC<Props> = (props) => {
 };
 
 export default ChatListDrawer;
-

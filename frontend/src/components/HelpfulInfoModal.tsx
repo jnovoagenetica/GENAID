@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { PiLinkSimple, PiWarningCircle } from 'react-icons/pi';
 import Button from './Button'; // Ajusta la ruta según tu proyecto
 

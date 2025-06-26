@@ -4,7 +4,6 @@ import ButtonCopy from './ButtonCopy';
 import {
   PiCaretLeftBold,
   PiNotePencil,
-  PiUserFill,
   PiThumbsDown,
   PiThumbsDownFill,
 } from 'react-icons/pi';

@@ -25,9 +25,9 @@ const DrawerItem: React.FC<Props> = (props) => {
       )}
       to={props.to}
       onClick={props.onClick}>
-      <div className={`flex h-8 max-h-5 w-full justify-start overflow-hidden`}>
+      <div className={`flex items-center h-8 max-h-8 justify-start overflow-hidden`}>
         <div className="mr-2 pt-0.5">{props.icon}</div>
-        <div className="relative flex-1 text-ellipsis break-all">
+        <div className="relative flex-1 text-ellipsis break-all truncate max-w-[300px]">
           {props.labelComponent}
           {(props.isBlur ?? true) && (
             <div
