@@ -19,21 +19,18 @@ const AuthAmplify: React.FC<Props> = ({ socialProviders, children }) => {
       components={{
         Header: () => (
           <div className="mb-5 mt-20 flex flex-col items-center justify-center gap-2">
-            <div className="flex justify-center space-x-1 items-center">
+            <div className="flex justify-center items-center gap-x-4">
               <img
                 src="/Gentica_Humana.png"
                 alt="Logo Genética Humana"
-                className="h-56 max-h-56 w-auto object-contain shrink-0"
+                className="h-56 max-h-56 w-auto object-contain"
               />
               <img
                 src="/GeneticaLogoAid.png"
                 alt="Logo GHeneAid"
-                className="h-56 max-h-50 w-auto object-contain shrink-0"
+                className="h-56 max-h-50 w-auto object-contain"
               />
             </div>
-            <p className="text-3xl font-bold text-slate-800 mt-2">
-              GHeneAid - Genética Humana
-            </p>
           </div>
         ),
       }}
