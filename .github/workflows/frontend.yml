@@ -12,8 +12,6 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     defaults:
-      runs:
-        workflow_dispatch: frontend
 
     steps:
       - name: Checkout repo
