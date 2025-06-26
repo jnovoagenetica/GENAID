@@ -390,7 +390,7 @@ const ChatListDrawer: React.FC<Props> = (props) => {
           <div
             className={`${
               opened ? 'w-full' : 'w-full'
-            } fixed bottom-0 flex h-12 items-center justify-start border-t border-r transition-width`}>
+            } fixed bottom-0 flex h-12 items-center justify-start border-t border-r transition-width bg-menu-header lg:w-80`}>
             <Menu onSignOut={props.onSignOut} />
           </div>
         </nav>
