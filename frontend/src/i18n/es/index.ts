@@ -6,7 +6,7 @@ const translation = {
       },
     },
     app: {
-      name: 'GenAID',
+      name: 'GHeneAId',
       nameWithoutClaude: 'Bedrock Chat',
       inputMessage: 'Enviar un mensaje',
       starredBots: 'Bots Favoritos',

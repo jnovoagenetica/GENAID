@@ -90,6 +90,7 @@ def update_bot(
     sync_status: type_sync_status,
     sync_status_reason: str,
     display_retrieved_chunks: bool,
+    model: str,
 ):
     """Update bot title, description, and instruction.
     NOTE: Use `update_bot_visibility` to update visibility.
@@ -112,6 +113,7 @@ def update_bot(
                 ":display_retrieved_chunks": display_retrieved_chunks,
                 ":generation_params": generation_params.model_dump(),
                 ":search_params": search_params.model_dump(),
+                ":model": model,  # <--- agregas esta línea
             },
             ReturnValues="ALL_NEW",
             ConditionExpression="attribute_exists(PK) AND attribute_exists(SK)",

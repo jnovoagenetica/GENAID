@@ -290,6 +290,7 @@ def modify_owned_bot(
         sync_status=sync_status,
         sync_status_reason="",
         display_retrieved_chunks=modify_input.display_retrieved_chunks,
+        model=modify_input.model,
     )
 
     return BotModifyOutput(

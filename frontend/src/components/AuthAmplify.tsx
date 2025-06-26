@@ -12,18 +12,28 @@ type Props = BaseProps & {
 const AuthAmplify: React.FC<Props> = ({ socialProviders, children }) => {
   const { signOut } = useAuthenticator();
 
-  return (
+ return (
     <Authenticator
       socialProviders={socialProviders}
       hideSignUp
       components={{
         Header: () => (
-          <div className="mb-5 mt-10 flex justify-center">
-            <img
-              src="/Gentica_Humana.png" // ✅ Imagen en carpeta `public/`
-              alt="Logo Genética Humana"
-              className="h-50 w-auto object-contain"
-            />
+          <div className="mb-5 mt-20 flex flex-col items-center justify-center gap-2">
+            <div className="flex justify-center space-x-1 items-center">
+              <img
+                src="/Gentica_Humana.png"
+                alt="Logo Genética Humana"
+                className="h-56 max-h-56 w-auto object-contain shrink-0"
+              />
+              <img
+                src="/GeneticaLogoAid.png"
+                alt="Logo GHeneAid"
+                className="h-56 max-h-50 w-auto object-contain shrink-0"
+              />
+            </div>
+            <p className="text-3xl font-bold text-slate-800 mt-2">
+              GHeneAid - Genética Humana
+            </p>
           </div>
         ),
       }}
@@ -31,6 +41,6 @@ const AuthAmplify: React.FC<Props> = ({ socialProviders, children }) => {
       <>{cloneElement(children as ReactElement, { signOut })}</>
     </Authenticator>
   );
-};
+};;
 
 export default AuthAmplify;

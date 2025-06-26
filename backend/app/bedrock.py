@@ -167,14 +167,18 @@ def calculate_price(
     return input_price * input_tokens / 1000.0 + output_price * output_tokens / 1000.0
 
 
-def get_model_id(model: str) -> str:
-    # Ref: https://docs.aws.amazon.com/bedrock/latest/userguide/model-ids-arns.html
+def get_model_id(model: str | None) -> str:
+    if model is None or model == "":
+        model = "claude-v3.5-sonnet"
+    
     if model == "claude-v2":
         return "anthropic.claude-v2:1"
     elif model == "claude-instant-v1":
         return "anthropic.claude-instant-v1"
     elif model == "claude-v3-sonnet":
         return "anthropic.claude-3-sonnet-20240229-v1:0"
+    elif model == "claude-v3.5-sonnet":
+        return "anthropic.claude-3-5-sonnet-20240620-v1:0"
     elif model == "claude-v3-haiku":
         return "anthropic.claude-3-haiku-20240307-v1:0"
     elif model == "claude-v3-opus":
@@ -186,7 +190,7 @@ def get_model_id(model: str) -> str:
     elif model == "mistral-large":
         return "mistral.mistral-large-2402-v1:0"
     else:
-        raise NotImplementedError()
+        raise NotImplementedError(f"Model name {model} not implemented!")
 
 
 def calculate_query_embedding(question: str) -> list[float]:

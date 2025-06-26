@@ -18,7 +18,7 @@ const useModelState = create<{
 }>((set) => ({
   modelId: 'claude-v3.5-sonnet',
   setModelId: (_m) => {
-    //console.warn('Cambio de modelo bloqueado. Solo se permite Claude 3.5 (Sonnet).');
+    console.warn('Cambio de modelo bloqueado. Solo se permite Claude 3.5 (Sonnet).');
   },
 }));
 

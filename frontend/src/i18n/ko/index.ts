@@ -4,7 +4,7 @@
 const translation = {
   translation: {
     app: {
-      name: 'GenAID',
+      name: 'GHeneAId',
       nameWithoutClaude: 'Bedrock Chat',
       inputMessage: '입력해 주십시오',
     },
