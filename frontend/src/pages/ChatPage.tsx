@@ -210,6 +210,8 @@ const ChatPage: React.FC = () => {
     e.preventDefault();
   }, []);
 
+  const isDesktop = window.innerWidth >= 1024; // o usar un hook si prefieres
+
   return (
     <div className="bg-[#D4EEF3] min-h-screen" onDragOver={onDragOver} onDrop={endDnd} onDragEnd={endDnd}>
       <div className="relative h-14 w-full">
@@ -291,13 +293,35 @@ const ChatPage: React.FC = () => {
               initial={false}
               animate={
                 messages.length === 0
-                  ? { scale: 1.8, position: 'fixed', top: '50%', left: '50%', x: '-45%', y: '-80%'}
-                  : { scale: 0.6, position: 'fixed', top: 20, left: '50%', x: '-50%', y: 0}
+                  ? {
+                    position: 'fixed',
+                    top: '50%',
+                    left: '50%',
+                    x: isDesktop ? '-45%' : '-40%',
+                    y: isDesktop ? '-80%' : '-90%',
+                }
+                : {
+                    position: 'fixed',
+                    top: 20,
+                    left: '50%',
+                    x: '-50%',
+                    y: 0,
+                }
               }
-              transition={{ type: 'spring', stiffness: 100, damping: 20}}
+              transition={{ type: 'spring', stiffness: 100, damping: 20 }}
               className="z-20 flex w-full justify-center pointer-events-none"
             >
-              <img src="/Gentica_Humana.png" alt="Logo Genetica Humana" className="w-auto max-w-xs" />
+              <img
+                src="/Gentica_Humana.png"
+                alt="Logo Genetica Humana"
+                className="w-full 
+                           max-w-[160px]
+                           sm:max-w-[200px]
+                           md:max-w-[300px]
+                           lg:max-w-[300px]
+                           xl:max-w-[450px]
+                           "
+                />
             </motion.div>
 
             {/**Documentamos la linea donde aparece el texto en pantalla */}
@@ -354,7 +378,7 @@ const ChatPage: React.FC = () => {
       </div>
 
       {/* Barra inferior fija  */}
-      <div className="absolute bottom-0 bg-[#D4EEF3] pt-4 pb-0 z-0 flex w-full flex-col items-center justify-center">
+      <div className="absolute bottom-0 bg-[#D4EEF3] pt-4 pb-2 z-0 flex w-full flex-col items-center justify-center">
         {bot && bot.syncStatus !== 'SUCCEEDED' && (
           <div className="mb-8 w-1/2">
             <Alert 
@@ -364,7 +388,7 @@ const ChatPage: React.FC = () => {
             </Alert>
           </div>
         )}
-         <div className='mb-5 w-full flex justify-center'>
+         <div className='mb-0 w-full flex justify-center'>
         <InputChatContent
           dndMode={dndMode}
           disabledSend={postingMessage}
@@ -378,12 +402,12 @@ const ChatPage: React.FC = () => {
           onRegenerate={onRegenerate}
         />
         </div>
-        <div className='fixed bottom-2 w-full flex justify-center z-10 pointer-events-none'>
-          <span className='ml-2'>Copyright Genética Humana E.U. 2025</span>
-          <img src="/Gentica_Humana.png" alt="Logo Genetica" className='h-7 w-auto opacity-80 ml-2'/>
-          <img src="/GeneticaLogoAid.png" alt="Logo Genetica" className='h-7 w-auto opacity-80 ml-2'/>
-          <span className='ml-2'>Powered by Norsoft S.A.S.</span>
-          <img src="/LogoNorSoft.png" alt="Logo NorSoft" className='h-7 w-auto opacity-80 ml-2' />
+        <div className="w-full px-4 flex flex-wrap items-center justify-center gap-2 sm:gap-4 text-xs sm:text-sm text-gray-700">
+          <span>© Genética Humana E.U. 2025</span>
+          <img src="/Gentica_Humana.png" alt="Logo Genetica" className="h-5 sm:h-6 w-auto opacity-80" />
+          <img src="/GeneticaLogoAid.png" alt="Logo Genetica" className="h-5 sm:h-6 w-auto opacity-80" />
+          <span>Powered by Norsoft S.A.S.</span>
+          <img src="/LogoNorSoft.png" alt="Logo NorSoft" className="h-5 sm:h-6 w-auto opacity-80" />
         </div>
       </div>
     </div>
