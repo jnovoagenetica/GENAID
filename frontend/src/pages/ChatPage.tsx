@@ -23,6 +23,7 @@ import useModel from '../hooks/useModel';
 import { motion } from 'framer-motion';
 
 
+
 const ChatPage: React.FC = () => {
   const { t } = useTranslation();
   // const navigate = useNavigate();
@@ -285,9 +286,6 @@ const ChatPage: React.FC = () => {
       <div className="pb-52 lg:pb-40">
         {messages.length === 0 ? (
           <div className="relative flex w-full flex-col items-center">
-            {!loadingConversation && (
-            <SwitchBedrockModel className="mt-3 w-min" />
-            )}
            {/* Animación del logo desde carpeta public */}
             <motion.div
               initial={false}
