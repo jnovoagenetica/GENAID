@@ -12,9 +12,9 @@ export const convertMessageMapToArray = (
   let key: string | null = currentMessageId;
   let messageContent: MessageMap[string] = messageMap[key];
 
-  //  指定のKeyが存在する場合
+  // 指定のKeyが存在する場合
   if (messageContent) {
-    //末端のKeyを取得
+    // 末端のKeyを取得
     while (messageContent.children.length > 0) {
       key = messageContent.children[0];
       messageContent = messageMap[key];
@@ -100,9 +100,24 @@ export const convertMessageMapToArray = (
       messageArray[idx + 1].sibling = [...m.children];
     }
   });
+
   // 先頭にsystemノードが設定されている場合は、それを除去する
   if (messageArray[0].id === 'system') {
     messageArray.shift();
+  }
+
+  // Agrega el currentMessageId si no se encuentra pero existe en el mapa
+  if (!messageArray.find(m => m.id === currentMessageId) && messageMap[currentMessageId]) {
+    messageArray.push({
+      id: currentMessageId,
+      model: messageMap[currentMessageId].model,
+      role: messageMap[currentMessageId].role,
+      content: messageMap[currentMessageId].content,
+      parent: messageMap[currentMessageId].parent,
+      children: messageMap[currentMessageId].children,
+      sibling: [],
+      feedback: messageMap[currentMessageId].feedback,
+    });
   }
 
   return messageArray;

@@ -281,16 +281,42 @@ const useChat = () => {
 
   // when updated messages
   useEffect(() => {
-    if (data && shouldUpdateMessages(data)) {
-      setMessages(conversationId, data.messageMap);
-      setCurrentMessageId(data.lastMessageId);
-      setModelId(getPostedModel());
-      if ((relatedDocuments[NEW_MESSAGE_ID.ASSISTANT]?.length ?? 0) > 0) {
-        moveRelatedDocuments(NEW_MESSAGE_ID.ASSISTANT, data.lastMessageId);
+  if (data && shouldUpdateMessages(data)) {
+    const tempId = NEW_MESSAGE_ID.ASSISTANT;
+    const tempMessage = chats[conversationId]?.[tempId];
+    const lastRealId = data.lastMessageId;
+    const realMessages = data.messageMap;
+
+    // Caso especial: si ya llegó la respuesta real
+    if (tempMessage && lastRealId && !realMessages[tempId]) {
+      const mergedMap = {
+        ...realMessages,
+        [lastRealId]: {
+          ...realMessages[lastRealId],
+          content: tempMessage.content.length > 0 ? tempMessage.content : realMessages[lastRealId].content,
+        },
+      };
+
+      setMessages(conversationId, mergedMap);
+      setCurrentMessageId(lastRealId);
+
+      if ((relatedDocuments[tempId]?.length ?? 0) > 0) {
+        moveRelatedDocuments(tempId, lastRealId);
       }
+    } else {
+      // No hay reemplazo todavía, mantenemos el temporal si existe
+      const updatedMap = {
+        ...realMessages,
+        ...(tempMessage ? { [tempId]: tempMessage } : {}),
+      };
+      setMessages(conversationId, updatedMap);
+      setCurrentMessageId(lastRealId || tempId);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversationId, data]);
+
+    setModelId(getPostedModel());
+  }
+}, [conversationId, data]);
+
 
   useEffect(() => {
     setIsGeneratedTitle(false);
@@ -444,8 +470,10 @@ const useChat = () => {
       })
       .catch((e) => {
         console.error(e);
-        removeMessage(conversationId, NEW_MESSAGE_ID.ASSISTANT);
-      })
+  // No eliminar el mensaje temporal, mejor mantenerlo para que se vea el fallo
+  // Puedes agregar un flag o estado visual para mostrar que hubo un error si quieres
+        setCurrentMessageId(NEW_MESSAGE_ID.ASSISTANT);
+})
       .finally(() => {
         setPostingMessage(false);
       });

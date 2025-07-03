@@ -10,7 +10,6 @@ import {
 } from 'react-icons/pi';
 import Button from '../components/Button';
 import { useTranslation } from 'react-i18next';
-import SwitchBedrockModel from '../components/SwitchBedrockModel';
 // import useBot from '../hooks/useBot';
 import useConversation from '../hooks/useConversation';
 
@@ -38,7 +37,6 @@ const ChatPage: React.FC = () => {
     retryPostChat,
     setCurrentMessageId,
     regenerate,
-    loadingConversation,
   } = useChat();
 
   const { getBotId } = useConversation();

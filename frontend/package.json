@@ -14,7 +14,7 @@
     "@aws-amplify/ui-react": "^5.0.6",
     "@headlessui/react": "^1.7.19",
     "@react-icons/all-files": "^4.1.0",
-    "aws-amplify": "^5.3.5",
+    "aws-amplify": "^5.3.27",
     "axios": "^1.6.0",
     "copy-to-clipboard": "^3.3.3",
     "dayjs": "^1.11.10",
