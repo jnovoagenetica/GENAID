@@ -4,7 +4,17 @@ import { create } from 'zustand';
 import i18next from 'i18next';
 
 const WS_ENDPOINT: string = import.meta.env.VITE_APP_WS_ENDPOINT;
-const CHUNK_SIZE = 32 * 1024; //32KB
+const CHUNK_SIZE = 32 * 1024;
+
+const PostStreamingStatus = {
+  START: 'START',
+  BODY: 'CHUNK',
+  END: 'END',
+  STREAMING: 'STREAMING',
+  STREAMING_END: 'STREAMING_END',
+  FETCHING_KNOWLEDGE: 'FETCHING_KNOWLEDGE',
+  ERROR: 'ERROR',
+};
 
 const usePostMessageStreaming = create<{
   post: (params: {
@@ -20,13 +30,14 @@ const usePostMessageStreaming = create<{
       } else {
         dispatch(i18next.t('app.chatWaitingSymbol'));
       }
+
       const token = (await Auth.currentSession()).getIdToken().getJwtToken();
+
       const payloadString = JSON.stringify({
         ...input,
         token,
       });
 
-      // chunking
       const chunkedPayloads: string[] = [];
       const chunkCount = Math.ceil(payloadString.length / CHUNK_SIZE);
       for (let i = 0; i < chunkCount; i++) {
@@ -36,13 +47,18 @@ const usePostMessageStreaming = create<{
       }
 
       let receivedCount = 0;
+
       return new Promise<string>((resolve, reject) => {
         let completion = '';
-        console.log('WS_ENDPOINT:', WS_ENDPOINT);
         const ws = new WebSocket(WS_ENDPOINT);
 
         ws.onopen = () => {
-          ws.send('START');
+          ws.send(
+            JSON.stringify({
+              step: PostStreamingStatus.START,
+              token,
+            })
+          );
         };
 
         ws.onmessage = (message) => {
@@ -50,46 +66,77 @@ const usePostMessageStreaming = create<{
             if (
               message.data === '' ||
               message.data === 'Message sent.' ||
-              // Ignore timeout message from api gateway
               message.data.startsWith(
                 '{"message": "Endpoint request timed out",'
               )
             ) {
               return;
-            } else if (message.data === 'Session started.') {
+            }
+
+            if (message.data === 'Session started.') {
               chunkedPayloads.forEach((chunk, index) => {
                 ws.send(
                   JSON.stringify({
+                    step: PostStreamingStatus.BODY,
                     index,
                     part: chunk,
                   })
                 );
               });
               return;
-            } else if (message.data === 'Message part received.') {
+            }
+
+            if (message.data === 'Message part received.') {
               receivedCount++;
               if (receivedCount === chunkedPayloads.length) {
-                ws.send('END');
+                ws.send(
+                  JSON.stringify({
+                    step: PostStreamingStatus.END,
+                  })
+                );
               }
               return;
             }
 
             const data = JSON.parse(message.data);
 
-            if (data.completion || data.completion === '') {
-              if (completion.endsWith(i18next.t('app.chatWaitingSymbol'))) {
-                completion = completion.slice(0, -1);
-              }
+            if (data.status) {
+              switch (data.status) {
+                case PostStreamingStatus.FETCHING_KNOWLEDGE:
+                  dispatch(i18next.t('bot.label.retrievingKnowledge'));
+                  break;
 
-              completion +=
-                data.completion +
-                (data.stop_reason ? '' : i18next.t('app.chatWaitingSymbol'));
-              dispatch(completion);
-              if (data.stop_reason) {
-                ws.close();
+                case PostStreamingStatus.STREAMING:
+                  if (data.completion || data.completion === '') {
+                    if (
+                      completion.endsWith(i18next.t('app.chatWaitingSymbol'))
+                    ) {
+                      completion = completion.slice(0, -1);
+                    }
+                    completion +=
+                      data.completion + i18next.t('app.chatWaitingSymbol');
+                    dispatch(completion);
+                  }
+                  break;
+
+                case PostStreamingStatus.STREAMING_END:
+                  if (
+                    completion.endsWith(i18next.t('app.chatWaitingSymbol'))
+                  ) {
+                    completion = completion.slice(0, -1);
+                    dispatch(completion);
+                  }
+                  ws.close();
+                  break;
+
+                case PostStreamingStatus.ERROR:
+                  ws.close();
+                  console.error(data);
+                  throw new Error(i18next.t('error.predict.invalidResponse'));
+
+                default:
+                  dispatch(i18next.t('app.chatWaitingSymbol'));
               }
-            } else if (data.status) {
-              dispatch(i18next.t('app.chatWaitingSymbol'));
             } else {
               ws.close();
               console.error(data);
@@ -106,6 +153,7 @@ const usePostMessageStreaming = create<{
           console.error(e);
           reject(i18next.t('error.predict.general'));
         };
+
         ws.onclose = () => {
           resolve(completion);
         };

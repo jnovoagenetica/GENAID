@@ -12,11 +12,13 @@ const useConversation = () => {
     syncConversations: () => {
       return mutate(conversations);
     },
-    getTitle: (conversationId: string) => {
+    // --- CAMBIO AQUÍ ---
+    getTitle: (conversationId: string): string | null => {
       return (
-        conversations?.find((c) => c.id === conversationId)?.title ?? 'New Chat'
+        conversations?.find((c) => c.id === conversationId)?.title ?? null
       );
     },
+    // --------------------
     getBotId: (conversationId: string) => {
       return conversations?.find((c) => c.id === conversationId)?.botId ?? null;
     },

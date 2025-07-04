@@ -18,20 +18,20 @@ const AuthAmplify: React.FC<Props> = ({ socialProviders, children }) => {
       hideSignUp
       components={{
         Header: () => (
-          <div className="mb-5 mt-20 flex flex-col items-center justify-center gap-2">
-            <div className="flex justify-center items-center gap-x-4">
-              <img
-                src="/Gentica_Humana.png"
-                alt="Logo Genética Humana"
-                className="h-56 max-h-56 w-auto object-contain"
-              />
-              <img
-                src="/GeneticaLogoAid.png"
-                alt="Logo GHeneAid"
-                className="h-56 max-h-50 w-auto object-contain"
-              />
-            </div>
-          </div>
+          <div className="mb-5 mt-20 flex flex-col items-center justify-center gap-4 px-4">
+      <div className="flex flex-col sm:flex-row items-center justify-center gap-4 w-full max-w-screen-md">
+        <img
+          src="/Gentica_Humana.png"
+          alt="Logo Genética Humana"
+          className="h-32 sm:h-40 md:h-48 w-auto object-contain"
+        />
+        <img
+          src="/GeneticaLogoAid.png"
+          alt="Logo GHeneAid"
+          className="h-32 sm:h-40 md:h-48 w-auto object-contain"
+        />
+      </div>
+    </div>
         ),
       }}
     >
