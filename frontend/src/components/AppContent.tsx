@@ -52,7 +52,7 @@ const AppContent: React.FC<Props> = (props) => {
           <div className="flex grow justify-center">
             {isGeneratedTitle ? (
               <>
-                <LazyOutputText text={getTitle(conversationId ?? '')} />
+                <LazyOutputText text={getTitle(conversationId ?? '') ?? ''} />
               </>
             ) : (
               <>{getTitle(conversationId ?? '')}</>
