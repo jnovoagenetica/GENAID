@@ -307,7 +307,7 @@ const ChatListDrawer: React.FC<Props> = (props) => {
               icon={<PiCompass />}
               to="bot/explore"
               labelComponent={t('button.botConsole')}
-            />*/}
+            />
             {/*{isAdmin && (
               <ExpandableDrawerGroup
                 label={t('app.adminConsoles')}

@@ -59,9 +59,9 @@ const AppContent: React.FC<Props> = (props) => {
             )}
           </div>
 
-          <ButtonIcon onClick={onClickNewChat}>
+          {/* <ButtonIcon onClick={onClickNewChat}>
             <PiPlus />
-          </ButtonIcon>
+          </ButtonIcon> */}
         </header>
 
         <div
