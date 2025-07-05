@@ -212,20 +212,27 @@ const ChatListDrawer: React.FC<Props> = (props) => {
     }
   }, [conversations, prevConversations]);
 
+  // CORRECCIÓN: Función para cerrar el menú solo si está en móvil y abierto.
+  const closeDrawerIfNeeded = useCallback(() => {
+    if (isMobile) {
+      switchOpen(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [switchOpen]);
+
+  // CORRECCIÓN: Llama a closeDrawerIfNeeded después de la acción.
   const onClickNewChat = useCallback(() => {
     newChat();
-    closeSamllDrawer();
+    closeDrawerIfNeeded();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [newChat, closeDrawerIfNeeded]);
 
-  const onClickNewBotChat = useCallback(
-    () => {
-      newChat();
-      closeSamllDrawer();
-    },
+  // CORRECCIÓN: Llama a closeDrawerIfNeeded después de la acción.
+  const onClickNewBotChat = useCallback(() => {
+    newChat();
+    closeDrawerIfNeeded();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
-  );
+  }, [newChat, closeDrawerIfNeeded]);
 
   const [isOpenDeleteModal, setIsOpenDeleteModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<
@@ -253,34 +260,6 @@ const ChatListDrawer: React.FC<Props> = (props) => {
     []
   );
 
-  const smallDrawer = useRef<HTMLDivElement>(null);
-
-  const closeSamllDrawer = useCallback(() => {
-    if (smallDrawer.current?.classList.contains('visible')) {
-      switchOpen();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useLayoutEffect(() => {
-    // リサイズイベントを拾って状態を更新する
-    const onResize = () => {
-      if (isMobile) {
-        return;
-      }
-
-      // 狭い画面のDrawerが表示されていて、画面サイズが大きくなったら状態を更新
-      if (!smallDrawer.current?.checkVisibility() && opened) {
-        switchOpen();
-      }
-    };
-    onResize();
-
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [opened]);
-
   return (
     <>
       <DialogConfirmDelete
@@ -289,12 +268,17 @@ const ChatListDrawer: React.FC<Props> = (props) => {
         onDelete={deleteChat}
         onClose={() => setIsOpenDeleteModal(false)}
       />
-      <div className="relative h-full overflow-y-auto bg-menu-header scrollbar-thin scrollbar-track-white scrollbar-thumb-menu-header/30">
-        <nav
-          className={`relative lg:visible lg:w-80 ${
-            opened ? 'visible w-64' : 'invisible w-0'
-          } `}>
-          <div className="w-full overflow-y-auto pb-24">
+
+      <div
+        className={`
+          flex h-full flex-col bg-menu-header transition-transform
+          duration-300 ease-in-out 
+          max-lg:fixed max-lg:inset-y-0
+          max-lg:left-0 max-lg:z-40 max-lg:h-screen max-lg:w-64 lg:w-80 lg:flex-shrink-0
+          ${opened ? 'max-lg:translate-x-0' : 'max-lg:-translate-x-full'}
+        `}>
+        <nav className="flex h-full w-full flex-col">
+          <div className="flex-grow overflow-y-auto overflow-x-hidden pb-12 scrollbar-thin scrollbar-track-white scrollbar-thumb-menu-header/30">
             <DrawerItem
               isActive={false}
               icon={<PiNotePencil />}
@@ -380,34 +364,37 @@ const ChatListDrawer: React.FC<Props> = (props) => {
                   label={conversation.title}
                   to={conversation.id}
                   generatedTitle={idx === generateTitleIndex}
-                  onClick={closeSamllDrawer}
+                  // CORRECCIÓN: Pasa la función para que el menú se cierre en móvil al hacer clic.
+                  onClick={() => {
+                    navigate(conversation.id);
+                    setTimeout(() => {
+                      switchOpen(false);
+                    }, 100);
+                  }}
                   onDelete={onDelete}
                 />
               ))}
             </ExpandableDrawerGroup>
           </div>
 
-          <div
-            className={`${
-              opened ? 'w-full' : 'w-full'
-            } fixed bottom-0 flex h-12 items-center justify-start border-t border-r transition-width bg-menu-header lg:w-80`}>
+          <div className="h-12 w-full flex-shrink-0 border-r border-t bg-menu-header">
             <Menu onSignOut={props.onSignOut} />
           </div>
         </nav>
       </div>
 
-      <div
-        ref={smallDrawer}
-        className={`lg:hidden ${opened ? 'visible' : 'hidden'}`}>
-        <ButtonIcon
-          className="fixed left-64 top-0 z-50 text-white"
-          onClick={switchOpen}>
-          <PiX />
-        </ButtonIcon>
-        <div
-          className="fixed z-40 h-dvh w-screen bg-dark-gray/90"
-          onClick={switchOpen}></div>
-      </div>
+      {opened && (
+        <div className="lg:hidden">
+          <ButtonIcon
+            className="fixed left-64 top-2 z-50 text-white"
+            onClick={() => switchOpen(false)}>
+            <PiX size={24} />
+          </ButtonIcon>
+          <div
+            className="fixed inset-0 z-30 bg-dark-gray/90"
+            onClick={() => switchOpen(false)}></div>
+        </div>
+      )}
     </>
   );
 };

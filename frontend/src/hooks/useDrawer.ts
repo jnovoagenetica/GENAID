@@ -2,17 +2,17 @@ import { create } from "zustand";
 
 const useDrawerState = create<{
   opened: boolean;
-  switchOpen: () => void;
-}>((set) => {
-  return {
-    opened: false,
-    switchOpen: () => {
-      set((state) => ({
-        opened: !state.opened,
-      }));
-    },
-  };
-});
+  switchOpen: (value?: boolean) => void;
+}>((set) => ({
+  opened: false,
+  switchOpen: (value?: boolean) => {
+    if (typeof value === "boolean") {
+      set({ opened: value });
+    } else {
+      set((state) => ({ opened: !state.opened }));
+    }
+  },
+}));
 
 const useDrawer = () => {
   const [opened, switchOpen] = useDrawerState((state) => [
