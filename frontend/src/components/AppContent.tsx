@@ -1,12 +1,11 @@
-import React, { useCallback } from 'react';
+import React from 'react';
 import ChatListDrawer from './ChatListDrawer';
 import { BaseProps } from '../@types/common';
 import LazyOutputText from './LazyOutputText';
-import { PiList, PiPlus } from 'react-icons/pi';
-import ButtonIcon from './ButtonIcon';
+import { PiList } from 'react-icons/pi';
 import SnackbarProvider from '../providers/SnackbarProvider';
 import { Outlet } from 'react-router-dom';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import useDrawer from '../hooks/useDrawer';
 import useConversation from '../hooks/useConversation';
 import useChat from '../hooks/useChat';
@@ -17,15 +16,12 @@ type Props = BaseProps & {
 
 const AppContent: React.FC<Props> = (props) => {
   const { switchOpen: switchDrawer } = useDrawer();
-  const navigate = useNavigate();
+ 
   const { conversationId } = useParams();
   const { getTitle } = useConversation();
   const { isGeneratedTitle } = useChat();
 
-  const onClickNewChat = useCallback(() => {
-    navigate('/');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  
 
   return (
     
