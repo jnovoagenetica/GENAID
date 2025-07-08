@@ -1,14 +1,12 @@
 {
   "app": "npx ts-node --prefer-ts-exts bin/bedrock-chat.ts",
   "watch": {
-    "include": [
-      "**",
-      "../backend"
-    ],
+    "include": ["**", "../backend"],
     "exclude": [
       "README.md",
       "../backend/**/__pycache__",
       "../backend/tests/**",
+      "../backend/.mypy_cache/**",
       "cdk*.json",
       "**/*.d.ts",
       "**/*.js",
@@ -22,10 +20,7 @@
   "context": {
     "@aws-cdk/aws-lambda:recognizeLayerVersion": true,
     "@aws-cdk/core:checkSecretUsage": true,
-    "@aws-cdk/core:target-partitions": [
-      "aws",
-      "aws-cn"
-    ],
+    "@aws-cdk/core:target-partitions": ["aws", "aws-cn"],
     "@aws-cdk-containers/ecs-service-extensions:enableDefaultLogDriver": true,
     "@aws-cdk/aws-ec2:uniqueImdsv2TemplateName": true,
     "@aws-cdk/aws-ecs:arnFormatIncludesClusterName": true,
@@ -58,10 +53,7 @@
     "@aws-cdk/aws-opensearchservice:enableOpensearchMultiAzWithStandby": true,
     "enableMistral": false,
     "bedrockRegion": "us-east-1",
-    "allowedIpV4AddressRanges": [
-      "0.0.0.0/1",
-      "128.0.0.0/1"
-    ],
+    "allowedIpV4AddressRanges": ["0.0.0.0/1", "128.0.0.0/1"],
     "allowedIpV6AddressRanges": [
       "0000:0000:0000:0000:0000:0000:0000:0000/1",
       "8000:0000:0000:0000:0000:0000:0000:0000/1"
@@ -69,11 +61,9 @@
     "identityProviders": [],
     "userPoolDomainPrefix": "",
     "allowedSignUpEmailDomains": [],
+    "autoJoinUserGroups": ["CreatingBotAllowed"],
     "selfSignUpEnabled": true,
-    "publishedApiAllowedIpV4AddressRanges": [
-      "0.0.0.0/1",
-      "128.0.0.0/1"
-    ],
+    "publishedApiAllowedIpV4AddressRanges": ["0.0.0.0/1", "128.0.0.0/1"],
     "publishedApiAllowedIpV6AddressRanges": [
       "0000:0000:0000:0000:0000:0000:0000:0000/1",
       "8000:0000:0000:0000:0000:0000:0000:0000/1"
@@ -83,6 +73,8 @@
       "start": {}
     },
     "embeddingContainerVcpu": 2048,
-    "embeddingContainerMemory": 4096
+    "embeddingContainerMemory": 4096,
+    "natgatewayCount": 2,
+    "useBedrockKnowledgeBaseForRag": false
   }
 }

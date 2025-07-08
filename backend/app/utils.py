@@ -1,35 +1,64 @@
+import json
+import logging
 import os
 from datetime import datetime
-from typing import List, Literal
+from typing import Any, Literal
 
 import boto3
-from anthropic import AnthropicBedrock
-from app.repositories.models.conversation import MessageModel
+import pg8000
+from aws_lambda_powertools.utilities import parameters
 from botocore.client import Config
 from botocore.exceptions import ClientError
+from boto3.dynamodb.conditions import Key
+from app.repositories.common import (
+    _get_table_client,
+    _get_table_public_client,
+    compose_bot_id,
+    RecordNotFoundError,
+)
+from app.repositories.models.custom_bot_guardrails import BedrockGuardrailsModel
+
+logger = logging.getLogger(__name__)
 
 REGION = os.environ.get("REGION", "us-east-1")
 BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "us-east-1")
 PUBLISH_API_CODEBUILD_PROJECT_NAME = os.environ.get(
     "PUBLISH_API_CODEBUILD_PROJECT_NAME", ""
 )
+DB_SECRETS_ARN = os.environ.get("DB_SECRETS_ARN", "")
+
+
+def snake_to_camel(snake_str):
+    components = snake_str.split("_")
+    return components[0] + "".join(x.title() for x in components[1:])
+
+
+def convert_dict_keys_to_camel_case(snake_dict):
+    camel_dict = {}
+    for key, value in snake_dict.items():
+        new_key = snake_to_camel(key)
+        if isinstance(value, dict):
+            value = convert_dict_keys_to_camel_case(value)
+        camel_dict[new_key] = value
+    return camel_dict
 
 
 def is_running_on_lambda():
     return "AWS_EXECUTION_ENV" in os.environ
 
 
-def is_anthropic_model(model_id: str) -> bool:
-    return model_id.startswith("anthropic") or False
-
-
 def get_bedrock_client(region=BEDROCK_REGION):
+    client = boto3.client("bedrock", region)
+    return client
+
+
+def get_bedrock_runtime_client(region=BEDROCK_REGION):
     client = boto3.client("bedrock-runtime", region)
     return client
 
 
-def get_anthropic_client(region=BEDROCK_REGION):
-    client = AnthropicBedrock(aws_region=region)
+def get_bedrock_agent_client(region=BEDROCK_REGION):
+    client = boto3.client("bedrock-agent-runtime", region)
     return client
 
 
@@ -48,7 +77,7 @@ def generate_presigned_url(
     # See: https://github.com/boto/boto3/issues/421#issuecomment-1849066655
     client = boto3.client(
         "s3",
-        region_name=REGION,
+        region_name=BEDROCK_REGION,
         config=Config(signature_version="v4", s3={"addressing_style": "path"}),
     )
     params = {"Bucket": bucket, "Key": key}
@@ -84,7 +113,7 @@ def compose_upload_document_s3_path(user_id: str, bot_id: str, filename: str) ->
 
 
 def delete_file_from_s3(bucket: str, key: str):
-    client = boto3.client("s3")
+    client = boto3.client("s3", BEDROCK_REGION)
 
     # Check if the file exists
     try:
@@ -101,7 +130,7 @@ def delete_file_from_s3(bucket: str, key: str):
 
 def delete_files_with_prefix_from_s3(bucket: str, prefix: str):
     """Delete all objects with the given prefix from the given bucket."""
-    client = boto3.client("s3")
+    client = boto3.client("s3", BEDROCK_REGION)
     response = client.list_objects_v2(Bucket=bucket, Prefix=prefix)
 
     if "Contents" not in response:
@@ -112,7 +141,7 @@ def delete_files_with_prefix_from_s3(bucket: str, prefix: str):
 
 
 def check_if_file_exists_in_s3(bucket: str, key: str):
-    client = boto3.client("s3")
+    client = boto3.client("s3", BEDROCK_REGION)
 
     # Check if the file exists
     try:
@@ -127,7 +156,7 @@ def check_if_file_exists_in_s3(bucket: str, key: str):
 
 
 def move_file_in_s3(bucket: str, key: str, new_key: str):
-    client = boto3.client("s3")
+    client = boto3.client("s3", BEDROCK_REGION)
 
     # Check if the file exists
     try:
@@ -155,3 +184,49 @@ def start_codebuild_project(environment_variables: dict) -> str:
         environmentVariablesOverride=environment_variables_override,
     )
     return response["build"]["id"]
+
+
+def query_postgres(
+    query: str,
+    params: tuple | None = None,
+    include_columns: bool = False,
+) -> tuple:
+    """Query the PostgreSQL and return the results.
+    Args:
+        query (str): The SQL query to execute.
+        params (tuple, optional): The parameters for the query template. Defaults to None.
+        include_columns (bool, optional): Whether to include the column names in the result. Defaults to False.
+
+    Returns:
+        tuple: The results of the query.
+        example: ((1, 'Alice'), (2, 'Bob')) if include_columns is False
+                 (('id', 'name'), (1, 'Alice'), (2, 'Bob')) if include_columns is True
+    """
+    secrets: Any = parameters.get_secret(DB_SECRETS_ARN)  # type: ignore
+    db_info = json.loads(secrets)
+
+    conn = pg8000.connect(
+        database=db_info["dbname"],
+        host=db_info["host"],
+        port=db_info["port"],
+        user=db_info["username"],
+        password=db_info["password"],
+    )
+
+    args = params if params else ()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(query, args=args)
+            res = cursor.fetchall()
+            columns = tuple([desc[0] for desc in cursor.description])
+    except Exception as e:
+        logger.error(f"Error executing query: {e}")
+        raise e
+    finally:
+        conn.close()
+
+    logger.debug(f"{len(res)} records found.")
+
+    if include_columns:
+        return columns, res
+    return res

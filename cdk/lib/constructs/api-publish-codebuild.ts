@@ -1,13 +1,12 @@
 import { Construct } from "constructs";
 import * as codebuild from "aws-cdk-lib/aws-codebuild";
 import * as s3 from "aws-cdk-lib/aws-s3";
-import { IgnoreMode, RemovalPolicy } from "aws-cdk-lib";
-import * as s3deploy from "aws-cdk-lib/aws-s3-deployment";
-import * as path from "path";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
+import { NagSuppressions } from "cdk-nag";
 
 export interface ApiPublishCodebuildProps {
+  readonly sourceBucket: s3.Bucket;
   readonly dbSecret: secretsmanager.ISecret;
 }
 
@@ -16,36 +15,7 @@ export class ApiPublishCodebuild extends Construct {
   constructor(scope: Construct, id: string, props: ApiPublishCodebuildProps) {
     super(scope, id);
 
-    const sourceBucket = new s3.Bucket(this, "ApiPublishCodebuildBucket", {
-      encryption: s3.BucketEncryption.S3_MANAGED,
-      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
-      enforceSSL: true,
-      removalPolicy: RemovalPolicy.DESTROY,
-      objectOwnership: s3.ObjectOwnership.OBJECT_WRITER,
-      autoDeleteObjects: true,
-    });
-
-    new s3deploy.BucketDeployment(this, "PublishApiSourceDeploy", {
-      sources: [
-        s3deploy.Source.asset(path.join(__dirname, "../../../"), {
-          ignoreMode: IgnoreMode.GIT,
-          exclude: [
-            "**/node_modules/**",
-            "**/dist/**",
-            "**/.venv/**",
-            "**/__pycache__/**",
-            "**/cdk.out/**",
-            "**/.vscode/**",
-            "**/.DS_Store/**",
-            "**/.git/**",
-            "**/.github/**",
-            "**/.mypy_cache/**",
-          ],
-        }),
-      ],
-      destinationBucket: sourceBucket,
-    });
-
+    const sourceBucket = props.sourceBucket;
     const project = new codebuild.Project(this, "Project", {
       source: codebuild.Source.s3({
         bucket: sourceBucket,
@@ -104,6 +74,18 @@ export class ApiPublishCodebuild extends Construct {
         resources: ["arn:aws:iam::*:role/cdk-*"],
       })
     );
+
+    NagSuppressions.addResourceSuppressions(project, [
+      {
+        id: "AwsPrototyping-CodeBuildProjectKMSEncryptedArtifacts",
+        reason:
+          "default: The AWS-managed CMK for Amazon Simple Storage Service (Amazon S3) is used.",
+      },
+      {
+        id: "AwsPrototyping-CodeBuildProjectPrivilegedModeDisabled",
+        reason: "for runnning on the docker daemon on the docker container",
+      },
+    ]);
 
     this.project = project;
   }

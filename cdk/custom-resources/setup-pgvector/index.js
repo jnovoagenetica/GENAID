@@ -1,4 +1,5 @@
 const { Client } = require("pg");
+const { getSecret } = require("@aws-lambda-powertools/parameters/secrets");
 
 const setUp = async (dbConfig) => {
   const client = new Client(dbConfig);
@@ -65,22 +66,23 @@ const updateStatus = async (event, status, reason, physicalResourceId) => {
 exports.handler = async (event, context) => {
   console.log(`Received event: ${JSON.stringify(event, null, 2)}`);
   console.log(`Received context: ${JSON.stringify(context, null, 2)}`);
-
-  // const dbConfig = event.ResourceProperties.dbConfig;
-  const dbConfig = {
-    host: process.env.DB_HOST,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-    port: process.env.DB_PORT,
-  };
-  console.log(`Received dbConfig: ${JSON.stringify(dbConfig, null, 2)}`);
+  console.log(`DB_SECRETS_ARN: ${process.env.DB_SECRETS_ARN}`);
 
   const dbClusterIdentifier = process.env.DB_CLUSTER_IDENTIFIER;
 
   try {
+    const secrets = await getSecret(process.env.DB_SECRETS_ARN);
+    const dbInfo = JSON.parse(secrets);
+    const dbConfig = {
+      host: dbInfo["host"],
+      user: dbInfo["username"],
+      password: dbInfo["password"],
+      database: dbInfo["dbname"],
+      port: dbInfo["port"],
+    };
     switch (event.RequestType) {
       case "Create":
+      case "Update":
         await setUp(dbConfig);
         await updateStatus(
           event,
@@ -89,7 +91,6 @@ exports.handler = async (event, context) => {
           dbClusterIdentifier
         );
         break;
-      case "Update":
       case "Delete":
         await updateStatus(event, "SUCCESS", "", dbClusterIdentifier);
     }
