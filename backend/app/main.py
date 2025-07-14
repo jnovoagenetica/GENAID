@@ -1,3 +1,10 @@
+# --- INICIO DEL ARCHIVO ---
+
+# 1. Cargar las variables de entorno ANTES que cualquier otro módulo de la aplicación.
+from dotenv import load_dotenv
+load_dotenv(dotenv_path=".env.local")
+
+# 2. AHORA SÍ, IMPORTAR EL RESTO DE LA APLICACIÓN
 import logging
 import os
 import traceback
@@ -24,6 +31,7 @@ from pydantic import ValidationError
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import ASGIApp, Message
+
 
 CORS_ALLOW_ORIGINS = os.environ.get("CORS_ALLOW_ORIGINS", "*")
 PUBLISHED_API_ID = os.environ.get("PUBLISHED_API_ID", None)
@@ -94,6 +102,7 @@ app.add_exception_handler(Exception, error_handler_factory(500))
 @app.middleware("http")
 def add_current_user_to_request(request: Request, call_next: ASGIApp):
     if is_running_on_lambda():
+        # Lógica para cuando se ejecuta en AWS Lambda (producción)
         if not is_published_api:
             authorization = request.headers.get("Authorization")
             if authorization:
@@ -109,12 +118,16 @@ def add_current_user_to_request(request: Request, call_next: ASGIApp):
                 groups=[],
             )
     else:
+        # 3. Lógica para desarrollo local con AUTENTICACIÓN REAL
+        # Ahora que el .env.local se carga correctamente, podemos verificar el token de Cognito.
         authorization = request.headers.get("Authorization")
         if authorization:
             token_str = authorization.split(" ")[1]
             token = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token_str)
             request.state.current_user = get_current_user(token)
         else:
+            # Si el frontend no envía token, se usa un usuario de prueba.
+            # (Esto no debería ocurrir si estás logueado en la app)
             request.state.current_user = User(
                 id="test_user", name="test_user", groups=[]
             )
@@ -130,7 +143,8 @@ async def add_log_requests(request: Request, call_next: ASGIApp):
     logger.info(f"Request headers: {request.headers}")
 
     body = await request.body()
-    logger.info(f"Request body: {body.decode('utf-8')[:100]}...")
+    # Mostramos solo los primeros 1000 caracteres para no llenar el log con archivos grandes
+    logger.info(f"Request body: {body.decode('utf-8')[:1000]}...")
 
     response = await call_next(request)  # type: ignore
 

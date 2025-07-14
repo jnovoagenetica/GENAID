@@ -215,9 +215,9 @@ def compose_args_for_converse_api(
 
     inference_config = {
         **DEFAULT_GENERATION_CONFIG,
+        "maxTokens": 200_000,  # Forzado siempre
         **(
             {
-                "maxTokens": generation_params.max_tokens,
                 "temperature": generation_params.temperature,
                 "topP": generation_params.top_p,
                 "stopSequences": generation_params.stop_sequences,
