@@ -1,3 +1,5 @@
+// src/components/InputChatContent.tsx
+
 import React, {
   useCallback,
   useEffect,
@@ -9,7 +11,8 @@ import ButtonSend from './ButtonSend';
 import Textarea from './Textarea';
 import useChat from '../hooks/useChat';
 import { PiX } from 'react-icons/pi';
-import { TbPhotoPlus } from 'react-icons/tb';
+//import { TbPhotoPlus } from 'react-icons/tb'; // Cambiaremos esto por un ícono más genérico
+import { PiFile } from 'react-icons/pi'; // Ícono más genérico para archivos
 import { useTranslation } from 'react-i18next';
 import ButtonIcon from './ButtonIcon';
 import useModel from '../hooks/useModel';
@@ -20,6 +23,7 @@ import ButtonFileChoose from './ButtonFileChoose';
 import { BaseProps } from '../@types/common';
 import ModalDialog from './ModalDialog';
 import HelpfulInfoModal from './HelpfulInfoModal';
+import PdfPreview from './PdfPreview'; // Importamos el nuevo componente
 
 type Props = BaseProps & {
   disabledSend?: boolean;
@@ -30,38 +34,50 @@ type Props = BaseProps & {
   onRegenerate: () => void;
 };
 
+// --- MODIFICACIÓN: Creamos una interfaz para el archivo adjunto
+interface AttachedFile {
+  // Guardamos el archivo original para PDFs y para procesar imágenes
+  file: File;
+  type: 'image' | 'pdf';
+  // Guardamos el base64 solo para las imágenes, como antes
+  base64: string | null;
+}
 
 const MAX_IMAGE_WIDTH = 800;
 const MAX_IMAGE_HEIGHT = 800;
 
+// --- MODIFICACIÓN: Adaptamos el estado de Zustand para manejar el nuevo tipo de archivo
 const useInputChatContentState = create<{
-  base64EncodedImages: string[];
-  pushBase64EncodedImage: (encodedImage: string) => void;
-  removeBase64EncodedImage: (index: number) => void;
-  clearBase64EncodedImages: () => void;
+  attachedFiles: AttachedFile[];
+  addFile: (file: AttachedFile) => void;
+  removeFile: (index: number) => void;
+  clearFiles: () => void;
   previewImageUrl: string | null;
   setPreviewImageUrl: (url: string | null) => void;
   isOpenPreviewImage: boolean;
   setIsOpenPreviewImage: (isOpen: boolean) => void;
 }>((set, get) => ({
-  base64EncodedImages: [],
-  pushBase64EncodedImage: (encodedImage) => {
+  attachedFiles: [],
+  addFile: (file) => {
     set({
-      base64EncodedImages: produce(get().base64EncodedImages, (draft) => {
-        draft.push(encodedImage);
+      attachedFiles: produce(get().attachedFiles, (draft) => {
+        // Evitar duplicados por nombre de archivo
+        if (!draft.some(f => f.file.name === file.file.name)) {
+          draft.push(file);
+        }
       }),
     });
   },
-  removeBase64EncodedImage: (index) => {
+  removeFile: (index) => {
     set({
-      base64EncodedImages: produce(get().base64EncodedImages, (draft) => {
+      attachedFiles: produce(get().attachedFiles, (draft) => {
         draft.splice(index, 1);
       }),
     });
   },
-  clearBase64EncodedImages: () => {
+  clearFiles: () => {
     set({
-      base64EncodedImages: [],
+      attachedFiles: [],
     });
   },
   previewImageUrl: null,
@@ -81,11 +97,13 @@ const InputChatContent: React.FC<Props> = (props) => {
   const { disabledImageUpload, model, acceptMediaType } = useModel();
 
   const [content, setContent] = useState('');
+  
+  // --- MODIFICACIÓN: Usamos el nuevo estado de Zustand
   const {
-    base64EncodedImages,
-    pushBase64EncodedImage,
-    removeBase64EncodedImage,
-    clearBase64EncodedImages,
+    attachedFiles,
+    addFile,
+    removeFile,
+    clearFiles,
     previewImageUrl,
     setPreviewImageUrl,
     isOpenPreviewImage,
@@ -93,18 +111,32 @@ const InputChatContent: React.FC<Props> = (props) => {
   } = useInputChatContentState();
 
   useEffect(() => {
-    clearBase64EncodedImages();
+    clearFiles();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const disabledSend = useMemo(() => {
-    return content === '' || props.disabledSend || hasError;
-  }, [hasError, content, props.disabledSend]);
-
+    // El botón de enviar se activa si hay texto O si hay archivos adjuntos
+    return (content.trim() === '' && attachedFiles.length === 0) || props.disabledSend || hasError;
+  }, [hasError, content, props.disabledSend, attachedFiles.length]);
 
   const inputRef = useRef<HTMLDivElement>(null);
 
+  // --- MODIFICACIÓN: Actualizamos `sendContent`
   const sendContent = useCallback(() => {
+    // Filtramos solo las imágenes para obtener su base64
+    const base64EncodedImages = attachedFiles
+      .filter((f) => f.type === 'image' && f.base64)
+      .map((f) => f.base64!);
+
+    // Filtramos los PDFs para ser conscientes de ellos
+    const pdfFiles = attachedFiles.filter((f) => f.type === 'pdf');
+    if (pdfFiles.length > 0) {
+      // Por ahora, solo los mostramos en la consola. El siguiente paso es enviarlos.
+      console.log("Archivos PDF adjuntos (aún no se envían):", pdfFiles.map(f => f.file.name));
+      // Aquí podrías mostrar una alerta si quieres.
+    }
+
     props.onSend(
       content,
       !disabledImageUpload && base64EncodedImages.length > 0
@@ -112,60 +144,73 @@ const InputChatContent: React.FC<Props> = (props) => {
         : undefined
     );
     setContent('');
-    clearBase64EncodedImages();
+    clearFiles();
   }, [
-    base64EncodedImages,
-    clearBase64EncodedImages,
+    attachedFiles,
+    clearFiles,
     content,
     disabledImageUpload,
     props,
   ]);
+  
+  // --- MODIFICACIÓN: Creamos una función para manejar tanto imágenes como PDFs
+  const processAndAddFile = useCallback(
+    (file: File) => {
+      // Si es PDF, lo añadimos directamente
+      if (file.type === 'application/pdf') {
+        addFile({
+          file: file,
+          type: 'pdf',
+          base64: null,
+        });
+        return;
+      }
 
-  const encodeAndPushImage = useCallback(
-    (imageFile: File) => {
-      const reader = new FileReader();
-      reader.readAsArrayBuffer(imageFile);
-      reader.onload = () => {
-        if (!reader.result) {
-          return;
-        }
-
-        const img = new Image();
-        img.src = URL.createObjectURL(new Blob([reader.result]));
-        img.onload = async () => {
-          const width = img.naturalWidth;
-          const height = img.naturalHeight;
-
-          // determine image size
-          const aspectRatio = width / height;
-          let newWidth;
-          let newHeight;
-          if (aspectRatio > 1) {
-            newWidth = width > MAX_IMAGE_WIDTH ? MAX_IMAGE_WIDTH : width;
-            newHeight =
-              width > MAX_IMAGE_WIDTH ? MAX_IMAGE_WIDTH / aspectRatio : height;
-          } else {
-            newHeight = height > MAX_IMAGE_HEIGHT ? MAX_IMAGE_HEIGHT : height;
-            newWidth =
-              height > MAX_IMAGE_HEIGHT
-                ? MAX_IMAGE_HEIGHT * aspectRatio
-                : width;
+      // Si es imagen, la procesamos a base64 como antes
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.readAsArrayBuffer(file);
+        reader.onload = () => {
+          if (!reader.result) {
+            return;
           }
-
-          // resize image using canvas
-          const canvas = document.createElement('canvas');
-          const ctx = canvas.getContext('2d');
-          canvas.width = newWidth;
-          canvas.height = newHeight;
-          ctx?.drawImage(img, 0, 0, newWidth, newHeight);
-
-          const resizedImageData = canvas.toDataURL('image/png');
-
-          pushBase64EncodedImage(resizedImageData);
+  
+          const img = new Image();
+          img.src = URL.createObjectURL(new Blob([reader.result]));
+          img.onload = async () => {
+            const width = img.naturalWidth;
+            const height = img.naturalHeight;
+  
+            const aspectRatio = width / height;
+            let newWidth;
+            let newHeight;
+            if (aspectRatio > 1) {
+              newWidth = width > MAX_IMAGE_WIDTH ? MAX_IMAGE_WIDTH : width;
+              newHeight = width > MAX_IMAGE_WIDTH ? MAX_IMAGE_WIDTH / aspectRatio : height;
+            } else {
+              newHeight = height > MAX_IMAGE_HEIGHT ? MAX_IMAGE_HEIGHT : height;
+              newWidth = height > MAX_IMAGE_HEIGHT ? MAX_IMAGE_HEIGHT * aspectRatio : width;
+            }
+  
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = newWidth;
+            canvas.height = newHeight;
+            ctx?.drawImage(img, 0, 0, newWidth, newHeight);
+  
+            const resizedImageData = canvas.toDataURL('image/png');
+            
+            // Añadimos el archivo completo al estado
+            addFile({
+              file: file,
+              type: 'image',
+              base64: resizedImageData,
+            });
+          };
         };
-      };
+      }
     },
-    [pushBase64EncodedImage]
+    [addFile]
   );
 
   useEffect(() => {
@@ -188,10 +233,11 @@ const InputChatContent: React.FC<Props> = (props) => {
       }
 
       for (let i = 0; i < clipboardItems.length; i++) {
-        if (model?.supportMediaType.includes(clipboardItems[i].type)) {
+        // --- MODIFICACIÓN: Permitimos pegar PDFs también
+        if (model?.supportMediaType.includes(clipboardItems[i].type) || clipboardItems[i].type === 'application/pdf') {
           const pastedFile = clipboardItems[i].getAsFile();
           if (pastedFile) {
-            encodeAndPushImage(pastedFile);
+            processAndAddFile(pastedFile);
             e.preventDefault();
           }
         }
@@ -205,16 +251,17 @@ const InputChatContent: React.FC<Props> = (props) => {
     };
   });
 
-  const onChangeImageFile = useCallback(
+  // --- MODIFICACIÓN: La función de cambio ahora usa `processAndAddFile`
+  const onChangeFile = useCallback(
     (fileList: FileList) => {
       for (let i = 0; i < fileList.length; i++) {
         const file = fileList.item(i);
         if (file) {
-          encodeAndPushImage(file);
+          processAndAddFile(file);
         }
       }
     },
-    [encodeAndPushImage]
+    [processAndAddFile]
   );
 
   const onDragOver: React.DragEventHandler<HTMLDivElement> = useCallback(
@@ -227,12 +274,10 @@ const InputChatContent: React.FC<Props> = (props) => {
   const onDrop: React.DragEventHandler<HTMLDivElement> = useCallback(
     (e) => {
       e.preventDefault();
-      onChangeImageFile(e.dataTransfer.files);
+      onChangeFile(e.dataTransfer.files);
     },
-    [onChangeImageFile]
+    [onChangeFile]
   );
-
-  
 
   return (
     <>
@@ -267,9 +312,11 @@ const InputChatContent: React.FC<Props> = (props) => {
             <ButtonFileChoose
               disabled={postingMessage}
               icon
-              accept={acceptMediaType.join(',')}
-              onChange={onChangeImageFile}>
-              <TbPhotoPlus />
+              // --- MODIFICACIÓN: Aceptamos imágenes y PDFs
+              accept={`${acceptMediaType.join(',')},.pdf`}
+              onChange={onChangeFile}>
+              {/* Usamos un ícono más genérico */}
+              <PiFile /> 
             </ButtonFileChoose>
           )}
           <ButtonSend
@@ -279,23 +326,32 @@ const InputChatContent: React.FC<Props> = (props) => {
             onClick={sendContent}
           />
         </div>
-        {base64EncodedImages.length > 0 && (
+        
+        {/* --- MODIFICACIÓN: Renderizado de la nueva lista de archivos */}
+        {attachedFiles.length > 0 && (
           <div className="relative m-2 mr-24 flex flex-wrap gap-3">
-            {base64EncodedImages.map((imageFile, idx) => (
+            {attachedFiles.map((item, idx) => (
               <div key={idx} className="relative">
-                <img
-                  src={imageFile}
-                  className="h-16 rounded border border-aws-squid-ink"
-                  onClick={() => {
-                    setPreviewImageUrl(imageFile);
-                    setIsOpenPreviewImage(true);
-                  }}
-                  alt={`preview ${idx}`}
-                />
+                <div className="h-16 w-16 rounded border border-aws-squid-ink overflow-hidden flex items-center justify-center">
+                  {item.type === 'image' && item.base64 && (
+                    <img
+                      src={item.base64}
+                      className="h-full w-full object-cover cursor-pointer"
+                      onClick={() => {
+                        setPreviewImageUrl(item.base64);
+                        setIsOpenPreviewImage(true);
+                      }}
+                      alt={item.file.name}
+                    />
+                  )}
+                  {item.type === 'pdf' && (
+                     <PdfPreview file={item.file} />
+                  )}
+                </div>
                 <ButtonIcon
                   className="absolute right-0 top-0 -m-2 border border-aws-sea-blue bg-white p-1 text-xs text-aws-sea-blue"
                   onClick={() => {
-                    removeBase64EncodedImage(idx);
+                    removeFile(idx);
                   }}>
                   <PiX />
                 </ButtonIcon>
@@ -311,7 +367,6 @@ const InputChatContent: React.FC<Props> = (props) => {
             <ModalDialog
               isOpen={isOpenPreviewImage}
               onClose={() => setIsOpenPreviewImage(false)}
-              // Set image null after transition end
               onAfterLeave={() => setPreviewImageUrl(null)}
               widthFromContent={true}>
               {previewImageUrl && (
@@ -324,6 +379,7 @@ const InputChatContent: React.FC<Props> = (props) => {
             </ModalDialog>
           </div>
         )}
+        
         {messages.some((m) => m.role === 'assistant') && (
           <div className="absolute -top-14 right-0 flex gap-2">
       

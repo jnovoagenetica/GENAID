@@ -2,9 +2,12 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
-// https://vitejs.dev/config/
 export default defineConfig({
-  resolve: { alias: { './runtimeConfig': './runtimeConfig.browser' } },
+  resolve: {
+    alias: {
+      './runtimeConfig': './runtimeConfig.browser',
+    },
+  },
   plugins: [
     react(),
     VitePWA({
@@ -72,5 +75,10 @@ export default defineConfig({
       },
     }),
   ],
-  server: { host: true },
+  server: {
+    host: true,
+  },
+  optimizeDeps: {
+    include: ['pdfjs-dist/build/pdf.worker.entry'],
+  },
 });
