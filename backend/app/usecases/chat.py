@@ -455,52 +455,67 @@ def propose_conversation_title(
         "mistral-large",
     ] = "claude-v3-haiku",
 ) -> str:
-    PROMPT = """Reading the conversation above, what is the appropriate title for the conversation? When answering the title, please follow the rules below:
-<rules>
-- Title length must be from 15 to 20 characters.
-- Prefer more specific title than general. Your title should always be distinct from others.
-- Return the conversation title only. DO NOT include any strings other than the title.
-- Title must be in the same language as the conversation.
-</rules>
-"""
-    # Fetch existing conversation
-    conversation = find_conversation_by_id(user_id, conversation_id)
+    """
+    Genera un título para la conversación usando un prompt específico y limitado.
+    """
+    logger.info(f"Generando título para la conversación: {conversation_id}")
+    
+    try:
+        # 1. Busca la conversación en la base de datos
+        conversation = find_conversation_by_id(user_id, conversation_id)
 
-    messages = trace_to_root(
-        node_id=conversation.last_message_id,
-        message_map=conversation.message_map,
-    )
+        # 2. Define un prompt de sistema específico y corto para esta tarea
+        system_prompt = """Eres un experto en resumir conversaciones. Tu única tarea es generar un título corto y conciso (máximo 5 palabras) para la siguiente conversación. Responde únicamente con el título, sin ningún texto adicional. El título debe estar en el mismo idioma que la conversación."""
 
-    # Append message to generate title
-    new_message = MessageModel(
-        role="user",
-        content=[
-            ContentModel(
-                content_type="text",
-                body=PROMPT,
-                media_type=None,
-                file_name=None,
-            )
-        ],
-        model=model,
-        children=[],
-        parent=conversation.last_message_id,
-        create_time=get_current_time(),
-        feedback=None,
-        used_chunks=None,
-        thinking_log=None,
-    )
-    messages.append(new_message)
+        # 3. Obtiene el historial de mensajes, pero lo limita para evitar exceder el límite de tokens
+        #    Tomamos solo los primeros 6 mensajes (3 intercambios) que suelen ser suficientes.
+        message_map = conversation.message_map
+        # Obtenemos la lista completa de mensajes
+        full_messages = trace_to_root(
+            node_id=conversation.last_message_id,
+            message_map=message_map,
+        )
+        # Filtramos solo los mensajes de 'user' y 'assistant' y tomamos los primeros 6
+        messages_for_title = [
+            msg for msg in full_messages if msg.role in ["user", "assistant"]
+        ][:6]
 
-    # Invoke Bedrock
-    args = compose_args_for_converse_api(
-        messages=messages,
-        model=model,
-    )
-    response = call_converse_api(args)
-    reply_txt = response["output"]["message"]["content"][0].get("text", "")
+        # Si no hay mensajes de usuario/asistente, no se puede generar un título.
+        if not messages_for_title:
+            logger.warning(f"No hay mensajes de usuario/asistente para generar título en la conversación {conversation_id}.")
+            return "New conversation"
 
-    return reply_txt
+        # 4. Configura la llamada a la API con parámetros ajustados para esta tarea
+        args = {
+            "model_id": model,  # Usamos un modelo rápido y barato como haiku
+            "system_prompt": system_prompt,
+            "messages": [
+                {
+                    "role": msg.role,
+                    "content": [{"text": c.body} for c in msg.content if c.content_type == 'text'],
+                }
+                for msg in messages_for_title
+            ],
+            "inference_config": {
+                "max_tokens": 30,  # Un título no necesita más que esto
+                "temperature": 0.1, # Más determinista para un título
+            },
+        }
+
+        # 5. Llama a la API de Bedrock
+        response = call_converse_api(args)
+        
+        # Extrae y limpia el título
+        title = response["output"]["message"]["content"][0].get("text", "New conversation")
+        title = title.strip().replace('"', '')
+        
+        logger.info(f"Título propuesto para {conversation_id}: '{title}'")
+        return title
+
+    except Exception as e:
+        logger.error(f"Error al generar el título para la conversación {conversation_id}: {e}")
+        # En caso de error, simplemente devuelve un título genérico para no romper el frontend
+        return "New conversation"
 
 
 def fetch_conversation(user_id: str, conversation_id: str) -> Conversation:

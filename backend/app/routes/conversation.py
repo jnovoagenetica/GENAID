@@ -1,3 +1,5 @@
+# Importamos logging para ver mensajes en la consola del backend
+import logging
 from app.repositories.conversation import (
     change_conversation_title,
     delete_conversation_by_id,
@@ -122,10 +124,21 @@ def patch_conversation_title(
     "/conversation/{conversation_id}/proposed-title", response_model=ProposedTitle
 )
 def get_proposed_title(request: Request, conversation_id: str):
-    """Suggest conversation title"""
+    """Suggest conversation title and save it to the database."""
     current_user: User = request.state.current_user
 
+    # Paso 1: Generar el título
     title = propose_conversation_title(current_user.id, conversation_id)
+
+    # Paso 2: Guardar el título generado en la base de datos
+    try:
+        change_conversation_title(current_user.id, conversation_id, title)
+        logging.info(f"Título actualizado para la conversación {conversation_id}: '{title}'")
+    except Exception as e:
+        # Si el guardado falla, registramos el error pero continuamos para no romper el frontend
+        logging.error(f"FALLO al guardar el nuevo título para la conversación {conversation_id}: {e}")
+
+    # Paso 3: Devolver el título al frontend para que lo muestre
     return ProposedTitle(title=title)
 
 

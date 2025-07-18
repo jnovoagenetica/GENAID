@@ -1,16 +1,12 @@
 import React from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 
-// Importamos el worker usando '?url'.
-// Vite procesará el archivo y nos devolverá su URL pública como un string.
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
-// Ahora le pasamos la URL (el string) que obtuvimos de la importación.
-// Esto satisface tanto a TypeScript como a react-pdf.
-pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+// ✅ Worker local para evitar errores de Cloudflare
+import workerSrc from 'pdfjs-dist/build/pdf.worker.min?url';
+pdfjs.GlobalWorkerOptions.workerSrc = workerSrc;
 
 interface PdfPreviewProps {
   file: File;
@@ -18,11 +14,7 @@ interface PdfPreviewProps {
 
 const PdfPreview: React.FC<PdfPreviewProps> = ({ file }) => {
   function onDocumentLoadError(error: Error) {
-    console.error('[PdfPreview] Error DETALLADO al cargar el documento PDF:', error.message);
-  }
-
-  if (!file) {
-    return null; 
+    console.error('[PdfPreview] Error al cargar PDF:', error.message);
   }
 
   return (

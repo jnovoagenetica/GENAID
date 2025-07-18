@@ -78,7 +78,8 @@ export default defineConfig({
   server: {
     host: true,
   },
-  optimizeDeps: {
-    include: ['pdfjs-dist/build/pdf.worker.entry'],
+  // La sección 'optimizeDeps' ha sido eliminada.
+  build: {
+    sourcemap: false, // ⛔ Evita errores 404 por archivos .map faltantes
   },
 });
