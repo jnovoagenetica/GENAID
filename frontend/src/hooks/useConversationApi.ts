@@ -1,3 +1,5 @@
+// src/hooks/useConversationApi.ts
+
 import { MutatorCallback, useSWRConfig } from 'swr';
 import {
   Conversation,
@@ -33,11 +35,34 @@ const useConversationApi = () => {
         }
       );
     },
-    postMessage: (input: PostMessageRequest) => {
-      return http.post<PostMessageResponse>('conversation', {
-        ...input,
-      });
+
+    // --- MODIFICACIÓN PRINCIPAL ---
+    postMessage: (input: PostMessageRequest, files?: File[]) => {
+      // Si hay archivos, debemos usar FormData.
+      if (files && files.length > 0) {
+        const formData = new FormData();
+        
+        // El backend necesitará parsear este string 'request' a un objeto JSON
+        formData.append('request', JSON.stringify(input));
+        
+        // Adjuntamos cada archivo
+        files.forEach(file => {
+          // El nombre 'files' debe coincidir con lo que espera tu backend
+          formData.append('files', file, file.name); 
+        });
+        
+        // Usamos el http.post pero con el FormData.
+        // El navegador establecerá el 'Content-Type' a 'multipart/form-data' automáticamente.
+        return http.post<PostMessageResponse>('conversation', formData);
+      } else {
+        // Si no hay archivos, el comportamiento es el mismo de antes (enviar JSON).
+        return http.post<PostMessageResponse>('conversation', {
+          ...input,
+        });
+      }
     },
+    // ---------------------------------
+
     getRelatedDocuments: (input: GetRelatedDocumentsRequest) => {
       return http.post<GetRelatedDocumentsResponse>(
         'conversation/related-documents',

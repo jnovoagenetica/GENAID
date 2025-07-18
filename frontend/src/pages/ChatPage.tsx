@@ -1,3 +1,5 @@
+// src/pages/ChatPage.tsx
+
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import InputChatContent from '../components/InputChatContent';
 import useChat from '../hooks/useChat';
@@ -20,8 +22,6 @@ import Alert from '../components/Alert';
 import useBotSummary from '../hooks/useBotSummary';
 import useModel from '../hooks/useModel';
 import { motion } from 'framer-motion';
-
-
 
 const ChatPage: React.FC = () => {
   const { t } = useTranslation();
@@ -101,16 +101,26 @@ const ChatPage: React.FC = () => {
       : undefined;
   }, [bot?.hasKnowledge, botId]);
 
+  // --- MODIFICACIÓN CLAVE: Actualizamos la función `onSend` ---
   const onSend = useCallback(
-    (content: string, base64EncodedImages?: string[]) => {
+    (
+      content: string,
+      options?: {
+        base64EncodedImages?: string[];
+        pdfFiles?: File[];
+      }
+    ) => {
+      // Ahora pasamos el objeto 'options' completo a postChat
       postChat({
         content,
-        base64EncodedImages,
+        base64EncodedImages: options?.base64EncodedImages,
+        pdfFiles: options?.pdfFiles, // Pasamos los archivos PDF
         bot: inputBotParams,
       });
     },
     [inputBotParams, postChat]
   );
+  // -------------------------------------------------------------
 
   const onChangeCurrentMessageId = useCallback(
     (messageId: string) => {

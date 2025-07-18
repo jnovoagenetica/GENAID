@@ -25,14 +25,22 @@ import ModalDialog from './ModalDialog';
 import HelpfulInfoModal from './HelpfulInfoModal';
 import PdfPreview from './PdfPreview'; // Importamos el nuevo componente
 
+// --- MODIFICACIÓN CLAVE 1: Actualizamos la firma de `onSend` ---
 type Props = BaseProps & {
   disabledSend?: boolean;
   disabled?: boolean;
   placeholder?: string;
   dndMode?: boolean;
-  onSend: (content: string, base64EncodedImages?: string[]) => void;
+  onSend: (
+    content: string,
+    options?: { // El segundo argumento ahora es un objeto de opciones
+      base64EncodedImages?: string[];
+      pdfFiles?: File[];
+    }
+  ) => void;
   onRegenerate: () => void;
 };
+// ---------------------------------------------------------------
 
 // --- MODIFICACIÓN: Creamos una interfaz para el archivo adjunto
 interface AttachedFile {
@@ -46,7 +54,7 @@ interface AttachedFile {
 const MAX_IMAGE_WIDTH = 800;
 const MAX_IMAGE_HEIGHT = 800;
 
-// --- MODIFICACIÓN: Adaptamos el estado de Zustand para manejar el nuevo tipo de archivo
+// --- CORRECCIÓN: Restauramos el contenido completo del estado de Zustand ---
 const useInputChatContentState = create<{
   attachedFiles: AttachedFile[];
   addFile: (file: AttachedFile) => void;
@@ -89,6 +97,7 @@ const useInputChatContentState = create<{
     set({ isOpenPreviewImage: isOpen });
   },
 }));
+// -------------------------------------------------------------------------
 
 const InputChatContent: React.FC<Props> = (props) => {
   const [showHelpfulInfo] = useState(true);
@@ -122,27 +131,29 @@ const InputChatContent: React.FC<Props> = (props) => {
 
   const inputRef = useRef<HTMLDivElement>(null);
 
-  // --- MODIFICACIÓN: Actualizamos `sendContent`
+  // --- MODIFICACIÓN CLAVE 2: Actualizamos `sendContent` para enviar los PDFs ---
   const sendContent = useCallback(() => {
-    // Filtramos solo las imágenes para obtener su base64
+    // Recopilamos las imágenes como antes
     const base64EncodedImages = attachedFiles
       .filter((f) => f.type === 'image' && f.base64)
       .map((f) => f.base64!);
 
-    // Filtramos los PDFs para ser conscientes de ellos
-    const pdfFiles = attachedFiles.filter((f) => f.type === 'pdf');
+    // Recopilamos los archivos PDF
+    const pdfFiles = attachedFiles
+      .filter((f) => f.type === 'pdf')
+      .map((f) => f.file);
+
     if (pdfFiles.length > 0) {
-      // Por ahora, solo los mostramos en la consola. El siguiente paso es enviarlos.
-      console.log("Archivos PDF adjuntos (aún no se envían):", pdfFiles.map(f => f.file.name));
-      // Aquí podrías mostrar una alerta si quieres.
+      console.log("Preparando para enviar los siguientes PDFs:", pdfFiles.map(f => f.name));
     }
 
-    props.onSend(
-      content,
-      !disabledImageUpload && base64EncodedImages.length > 0
-        ? base64EncodedImages
-        : undefined
-    );
+    // Llamamos a `props.onSend` con la nueva estructura de datos
+    props.onSend(content, {
+      base64EncodedImages: !disabledImageUpload && base64EncodedImages.length > 0 ? base64EncodedImages : undefined,
+      pdfFiles: pdfFiles.length > 0 ? pdfFiles : undefined,
+    });
+
+    // Limpiamos todo después de enviar
     setContent('');
     clearFiles();
   }, [
@@ -152,6 +163,7 @@ const InputChatContent: React.FC<Props> = (props) => {
     disabledImageUpload,
     props,
   ]);
+  // -------------------------------------------------------------------------
   
   // --- MODIFICACIÓN: Creamos una función para manejar tanto imágenes como PDFs
   const processAndAddFile = useCallback(
