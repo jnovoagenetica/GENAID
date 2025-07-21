@@ -1,4 +1,4 @@
-// src/hooks/useConversationApi.ts
+// --- CÓDIGO COMPLETO Y FINAL PARA src/hooks/useConversationApi.ts (AJUSTADO A TUS TIPOS) ---
 
 import { MutatorCallback, useSWRConfig } from 'swr';
 import {
@@ -36,32 +36,44 @@ const useConversationApi = () => {
       );
     },
 
-    // --- MODIFICACIÓN PRINCIPAL ---
+    // /-------------------------------------------------------------------\
+    // |    INICIO DE LA FUNCIÓN postMessage CORREGIDA PARA TUS TIPOS    |
+    // \-------------------------------------------------------------------/
     postMessage: (input: PostMessageRequest, files?: File[]) => {
-      // Si hay archivos, debemos usar FormData.
-      if (files && files.length > 0) {
-        const formData = new FormData();
-        
-        // El backend necesitará parsear este string 'request' a un objeto JSON
-        formData.append('request', JSON.stringify(input));
-        
-        // Adjuntamos cada archivo
-        files.forEach(file => {
-          // El nombre 'files' debe coincidir con lo que espera tu backend
-          formData.append('files', file, file.name); 
-        });
-        
-        // Usamos el http.post pero con el FormData.
-        // El navegador establecerá el 'Content-Type' a 'multipart/form-data' automáticamente.
-        return http.post<PostMessageResponse>('conversation', formData);
-      } else {
-        // Si no hay archivos, el comportamiento es el mismo de antes (enviar JSON).
-        return http.post<PostMessageResponse>('conversation', {
-          ...input,
-        });
+      const formData = new FormData();
+
+      // 1. Añadimos el mensaje del usuario (campo obligatorio).
+      // Según tu 'conversation.d.ts', el texto está en input.message.content[0].body
+      // Añadimos una comprobación de seguridad para evitar errores si el array está vacío.
+      const messageText = input.message.content.length > 0 ? input.message.content[0].body : '';
+      // El backend espera una clave llamada 'message' (en minúsculas)
+      formData.append('message', messageText);
+
+      // 2. Añadimos conversation_id si existe.
+      // Tu tipo usa 'conversationId' (camelCase), pero el backend espera 'conversation_id' (snake_case).
+      // Aquí hacemos la "traducción".
+      if (input.conversationId) {
+        formData.append('conversation_id', input.conversationId);
       }
+
+      // 3. Añadimos bot_id si existe.
+      // Tu tipo usa 'botId' (camelCase), pero el backend espera 'bot_id' (snake_case).
+      if (input.botId) {
+        formData.append('bot_id', input.botId);
+      }
+      
+      // 4. Añadimos el archivo si se proporcionó uno.
+      // El backend espera la clave 'file'.
+      if (files && files.length > 0) {
+        formData.append('file', files[0]);
+      }
+      
+      // Hacemos la petición POST con el FormData correctamente construido.
+      return http.post<PostMessageResponse>('conversation', formData);
     },
-    // ---------------------------------
+    // /-------------------------------------------------------------------\
+    // |      FIN DE LA FUNCIÓN postMessage CORREGIDA PARA TUS TIPOS     |
+    // \-------------------------------------------------------------------/
 
     getRelatedDocuments: (input: GetRelatedDocumentsRequest) => {
       return http.post<GetRelatedDocumentsResponse>(
