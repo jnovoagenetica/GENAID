@@ -25,6 +25,10 @@ python-multipart = "^0.0.20"
 pypdf = "^5.8.0"
 pymupdf = "^1.26.3"
 
+pytesseract = "^0.3.10"
+pdf2image = "^1.17.0"
+Pillow = "^10.3.0"
+
 [tool.poetry.group.dev.dependencies]
 mypy = "^1.10.0"
 black = "^24.8.0"

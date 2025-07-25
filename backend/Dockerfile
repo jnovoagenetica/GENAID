@@ -1,6 +1,17 @@
 FROM public.ecr.aws/docker/library/python:3.11.6-slim-bookworm
 
-# Install lambda web adapter
+# --- Tesseract OCR y dependencias ---
+RUN apt-get update && apt-get install -y \
+    tesseract-ocr \
+    tesseract-ocr-spa \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Lambda Web Adapter (opcional)
 COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:0.7.0 /lambda-adapter /opt/extensions/lambda-adapter
 
 WORKDIR /backend

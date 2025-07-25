@@ -814,7 +814,7 @@ async def find_public_bots_by_ids(bot_ids: list[str]) -> list[BotMetaWithStackIn
 
 
 def find_all_published_bots(
-    limit: int = 1000, next_token: str | None = None
+    limit: int = 150_000, next_token: str | None = None
 ) -> tuple[list[BotMetaWithStackInfo], str | None]:
     """Find all published bots. This method is intended for administrator use."""
     table = _get_table_public_client()
