@@ -1,7 +1,8 @@
-// src/pages/ChatPage.tsx
-
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import InputChatContent from '../components/InputChatContent';
+// ------------------- CAMBIO 1: Importar el estado del input -------------------
+import InputChatContent, {
+  useInputChatContentState,
+} from '../components/InputChatContent';
 import useChat from '../hooks/useChat';
 import ChatMessage from '../components/ChatMessage';
 import useScroll from '../hooks/useScroll';
@@ -14,7 +15,6 @@ import Button from '../components/Button';
 import { useTranslation } from 'react-i18next';
 // import useBot from '../hooks/useBot';
 import useConversation from '../hooks/useConversation';
-
 
 //import { copyBotUrl } from '../utils/BotUtils';
 //import { produce } from 'immer';
@@ -43,7 +43,8 @@ const ChatPage: React.FC = () => {
 
   const { scrollToBottom, scrollToTop } = useScroll();
 
-  const { conversationId: paramConversationId, botId: paramBotId } = useParams();
+  const { conversationId: paramConversationId, botId: paramBotId } =
+    useParams();
   const botId = useMemo(() => {
     return paramBotId ?? getBotId(conversationId);
   }, [conversationId, getBotId, paramBotId]);
@@ -101,26 +102,26 @@ const ChatPage: React.FC = () => {
       : undefined;
   }, [bot?.hasKnowledge, botId]);
 
-  // --- MODIFICACIÓN CLAVE: Actualizamos la función `onSend` ---
+  // ------------------- CAMBIO 2: Modificar onSend para incluir CUALQUIER archivo -------------------
   const onSend = useCallback(
-    (
-      content: string,
-      options?: {
-        base64EncodedImages?: string[];
-        pdfFiles?: File[];
-      }
-    ) => {
-      // Ahora pasamos el objeto 'options' completo a postChat
+    (content: string, base64EncodedImages?: string[]) => {
+      // Obtener TODOS los archivos adjuntos del estado, sin filtrar por tipo.
+      // Simplemente extraemos el objeto File de cada elemento.
+      const attachedRawFiles = useInputChatContentState
+        .getState()
+        .attachedFiles.map((f) => f.file);
+
+      // Llamar a postChat con toda la información, incluyendo los archivos
       postChat({
         content,
-        base64EncodedImages: options?.base64EncodedImages,
-        pdfFiles: options?.pdfFiles, // Pasamos los archivos PDF
+        base64EncodedImages, // Esto se mantiene por si se necesita para imágenes en el futuro.
+        files: attachedRawFiles, // <-- Renombramos de 'pdfFiles' a 'files' para mayor claridad.
         bot: inputBotParams,
       });
     },
     [inputBotParams, postChat]
   );
-  // -------------------------------------------------------------
+  // ------------------- FIN DEL CAMBIO -------------------
 
   const onChangeCurrentMessageId = useCallback(
     (messageId: string) => {
@@ -165,15 +166,15 @@ const ChatPage: React.FC = () => {
 
   // const onClickStar = useCallback(() => {
   //   if (!bot) {
-  //     return; 
+  //     return;
   //   }
   //   const isStarred = !bot.isPinned;
   //   mutateBot(
   //     produce(bot, (draft) => {
   //       draft.isPinned = isStarred;
   //     }),
-  //     { 
-  //       revalidate: false, 
+  //     {
+  //       revalidate: false,
   //     }
   //   );
   //   try {
@@ -209,7 +210,7 @@ const ChatPage: React.FC = () => {
     (e) => {
       if (!disabledImageUpload) {
         setDndMode(true);
-        }
+      }
       e.preventDefault();
     },
     [disabledImageUpload]
@@ -222,17 +223,21 @@ const ChatPage: React.FC = () => {
   const isDesktop = window.innerWidth >= 1024; // o usar un hook si prefieres
 
   return (
-    <div className="bg-[#D4EEF3] min-h-screen" onDragOver={onDragOver} onDrop={endDnd} onDragEnd={endDnd}>
+    <div
+      className="bg-[#D4EEF3] min-h-screen"
+      onDragOver={onDragOver}
+      onDrop={endDnd}
+      onDragEnd={endDnd}>
       <div className="relative h-14 w-full">
         <div className="flex w-full justify-between">
           <div className="p-2">
             <div className="mr-10 font-bold">{pageTitle}</div>
             <div className="text-xs font-thin text-dark-black ">
               {description}
-              </div>
+            </div>
           </div>
 
-           {/* {isAvailabilityBot && (
+          {/* {isAvailabilityBot && (
           <div className="absolute -top-1 right-0 flex h-full items-center">
             <div className="h-full w-5 bg-gradient-to-r from-transparent to-aws-paper"></div>
             <div className="flex items-center bg-aws-paper">
@@ -277,15 +282,12 @@ const ChatPage: React.FC = () => {
           </div>
         )} */}
         </div>
-       
-        
+
         {/* {getPostedModel() && (
         <div className="absolute right-2 top-10 text-xs text-dark-gray">
           model: {getPostedModel()}
         </div>
       )} */}
-        
-        
       </div>
 
       <hr className="w-full border-t border-gray" />
@@ -294,29 +296,28 @@ const ChatPage: React.FC = () => {
       <div className="pb-52 lg:pb-40">
         {messages.length === 0 ? (
           <div className="relative flex w-full flex-col items-center">
-           {/* Animación del logo desde carpeta public */}
+            {/* Animación del logo desde carpeta public */}
             <motion.div
               initial={false}
               animate={
                 messages.length === 0
                   ? {
-                    position: 'fixed',
-                    top: '50%',
-                    left: '50%',
-                    x: isDesktop ? '-45%' : '-40%',
-                    y: isDesktop ? '-80%' : '-90%',
-                }
-                : {
-                    position: 'fixed',
-                    top: 20,
-                    left: '50%',
-                    x: '-50%',
-                    y: 0,
-                }
+                      position: 'fixed',
+                      top: '50%',
+                      left: '50%',
+                      x: isDesktop ? '-45%' : '-40%',
+                      y: isDesktop ? '-80%' : '-90%',
+                    }
+                  : {
+                      position: 'fixed',
+                      top: 20,
+                      left: '50%',
+                      x: '-50%',
+                      y: 0,
+                    }
               }
               transition={{ type: 'spring', stiffness: 100, damping: 20 }}
-              className="z-20 flex w-full justify-center pointer-events-none"
-            >
+              className="z-20 flex w-full justify-center pointer-events-none">
               <img
                 src="/Gentica_Humana.png"
                 alt="Logo Genetica Humana"
@@ -327,7 +328,7 @@ const ChatPage: React.FC = () => {
                            lg:max-w-[300px]
                            xl:max-w-[450px]
                            "
-                />
+              />
             </motion.div>
 
             {/**Documentamos la linea donde aparece el texto en pantalla */}
@@ -339,11 +340,11 @@ const ChatPage: React.FC = () => {
           </div>
         ) : (
           messages.map((message, idx) => (
-            <div 
+            <div
               key={idx}
               className={`${
                 message.role === 'assistant' ? 'bg-[#A3D1E4]' : ''
-                }`}>
+              }`}>
               <ChatMessage
                 chatContent={message}
                 onChangeMessageId={onChangeCurrentMessageId}
@@ -367,17 +368,16 @@ const ChatPage: React.FC = () => {
               outlined
               onClick={() => {
                 retryPostChat({
-                  bot: inputBotParams, 
+                  bot: inputBotParams,
                 });
               }}>
               {t('button.resend')}
             </Button>
           </div>
         )}
-        
 
         {postingMessage && (
-          <div className='flex justify-center items-center mb-6 text-sm text-gray-700 animate-pulse'>
+          <div className="flex justify-center items-center mb-6 text-sm text-gray-700 animate-pulse">
             🧠 Pensando...
           </div>
         )}
@@ -387,33 +387,45 @@ const ChatPage: React.FC = () => {
       <div className="absolute bottom-0 bg-[#D4EEF3] pt-4 pb-2 z-0 flex w-full flex-col items-center justify-center">
         {bot && bot.syncStatus !== 'SUCCEEDED' && (
           <div className="mb-8 w-1/2">
-            <Alert 
+            <Alert
               severity="warning"
               title={t('bot.alert.sync.incomplete.title')}>
               {t('bot.alert.sync.incomplete.body')}
             </Alert>
           </div>
         )}
-         <div className='mb-0 w-full flex justify-center'>
-        <InputChatContent
-          dndMode={dndMode}
-          disabledSend={postingMessage}
-          disabled={disabledInput}
-          placeholder={
-            disabledInput
-             ? t('bot.label.notAvailableBotInputMessage') 
-             : undefined
-          }
-          onSend={onSend}
-          onRegenerate={onRegenerate}
-        />
+        <div className="mb-0 w-full flex justify-center">
+          <InputChatContent
+            dndMode={dndMode}
+            disabledSend={postingMessage}
+            disabled={disabledInput}
+            placeholder={
+              disabledInput
+                ? t('bot.label.notAvailableBotInputMessage')
+                : undefined
+            }
+            onSend={onSend}
+            onRegenerate={onRegenerate}
+          />
         </div>
         <div className="w-full px-4 flex flex-wrap items-center justify-center gap-2 sm:gap-4 text-xs sm:text-sm text-gray-700">
           <span>© Genética Humana E.U. 2025</span>
-          <img src="/Gentica_Humana.png" alt="Logo Genetica" className="h-5 sm:h-6 w-auto opacity-80" />
-          <img src="/GeneticaLogoAid.png" alt="Logo Genetica" className="h-5 sm:h-6 w-auto opacity-80" />
+          <img
+            src="/Gentica_Humana.png"
+            alt="Logo Genetica"
+            className="h-5 sm:h-6 w-auto opacity-80"
+          />
+          <img
+            src="/GeneticaLogoAid.png"
+            alt="Logo Genetica"
+            className="h-5 sm:h-6 w-auto opacity-80"
+          />
           <span>Powered by Norsoft S.A.S.</span>
-          <img src="/LogoNorSoft.png" alt="Logo NorSoft" className="h-5 sm:h-6 w-auto opacity-80" />
+          <img
+            src="/LogoNorSoft.png"
+            alt="Logo NorSoft"
+            className="h-5 sm:h-6 w-auto opacity-80"
+          />
         </div>
       </div>
     </div>

@@ -1,5 +1,3 @@
-// --- CÓDIGO COMPLETO Y FINAL PARA src/hooks/useConversationApi.ts (AJUSTADO A TUS TIPOS) ---
-
 import { MutatorCallback, useSWRConfig } from 'swr';
 import {
   Conversation,
@@ -27,6 +25,7 @@ const useConversationApi = () => {
         keepPreviousData: true,
       });
     },
+
     getConversation: (conversationId?: string) => {
       return http.get<Conversation>(
         !conversationId ? null : `conversation/${conversationId}`,
@@ -36,66 +35,78 @@ const useConversationApi = () => {
       );
     },
 
-    // /-------------------------------------------------------------------\
-    // |    INICIO DE LA FUNCIÓN postMessage CORREGIDA PARA TUS TIPOS    |
-    // \-------------------------------------------------------------------/
-    postMessage: (input: PostMessageRequest, files?: File[]) => {
-      const formData = new FormData();
+    // --- FUNCIÓN CORREGIDA ---
+    postMessage: (input: PostMessageRequest & { files?: File[] }) => {
+      // CAMBIO 1: La condición ahora busca 'files' en lugar de 'pdfFiles'.
+      // Esto permite que CUALQUIER tipo de archivo (PDF, imagen, etc.)
+      // active la lógica de subida.
+      if (input.files && input.files.length > 0) {
+        const formData = new FormData();
 
-      // 1. Añadimos el mensaje del usuario (campo obligatorio).
-      // Según tu 'conversation.d.ts', el texto está en input.message.content[0].body
-      // Añadimos una comprobación de seguridad para evitar errores si el array está vacío.
-      const messageText = input.message.content.length > 0 ? input.message.content[0].body : '';
-      // El backend espera una clave llamada 'message' (en minúsculas)
-      formData.append('message', messageText);
+        // CAMBIO 2 (Mejora): Encontrar el contenido de texto de forma segura.
+        // En lugar de asumir que está en la posición [0], lo buscamos por su 'contentType'.
+        const textContent = input.message.content.find(c => c.contentType === 'text')?.body ?? '';
+        formData.append('message', textContent);
 
-      // 2. Añadimos conversation_id si existe.
-      // Tu tipo usa 'conversationId' (camelCase), pero el backend espera 'conversation_id' (snake_case).
-      // Aquí hacemos la "traducción".
-      if (input.conversationId) {
-        formData.append('conversation_id', input.conversationId);
+        if (input.conversationId) {
+          formData.append('conversation_id', input.conversationId);
+        }
+
+        if (input.botId) {
+          formData.append('bot_id', input.botId);
+        }
+        
+        // --- INICIO DE LA MODIFICACIÓN CLAVE ---
+        // El backend fallaba porque faltaban estos campos. Ahora los añadimos al formulario.
+        if (input.message.parentMessageId) {
+          formData.append('parent_message_id', input.message.parentMessageId);
+        }
+        if (input.message.model) {
+          formData.append('model', input.message.model);
+        }
+        // --- FIN DE LA MODIFICACIÓN CLAVE ---
+
+        // CAMBIO 3: Se ha eliminado la comprobación que lanzaba un error si el archivo no era PDF.
+        // if (input.pdfFiles[0].type !== 'application/pdf') { ... } // <- ESTO SE FUE
+
+        // CAMBIO 4: Se adjunta el primer archivo de la lista 'files'.
+        // Nota: Tu backend actual acepta un solo archivo. Si necesitaras subir varios,
+        // tendrías que modificar el backend y hacer un bucle aquí.
+        formData.append('file', input.files[0]);
+
+        // Se llama al endpoint de subida con el FormData.
+        return http.post<PostMessageResponse>('conversation/upload', formData);
       }
 
-      // 3. Añadimos bot_id si existe.
-      // Tu tipo usa 'botId' (camelCase), pero el backend espera 'bot_id' (snake_case).
-      if (input.botId) {
-        formData.append('bot_id', input.botId);
-      }
-      
-      // 4. Añadimos el archivo si se proporcionó uno.
-      // El backend espera la clave 'file'.
-      if (files && files.length > 0) {
-        formData.append('file', files[0]);
-      }
-      
-      // Hacemos la petición POST con el FormData correctamente construido.
-      return http.post<PostMessageResponse>('conversation', formData);
+      // Fallback si no hay archivos. La lógica sigue igual.
+      return http.post<PostMessageResponse>('conversation', input);
     },
-    // /-------------------------------------------------------------------\
-    // |      FIN DE LA FUNCIÓN postMessage CORREGIDA PARA TUS TIPOS     |
-    // \-------------------------------------------------------------------/
+    // --- FIN DE LA FUNCIÓN CORREGIDA ---
 
     getRelatedDocuments: (input: GetRelatedDocumentsRequest) => {
       return http.post<GetRelatedDocumentsResponse>(
         'conversation/related-documents',
-        {
-          ...input,
-        }
+        input
       );
     },
+
     deleteConversation: (conversationId: string) => {
       return http.delete(`conversation/${conversationId}`);
     },
+
     clearConversations: () => {
       return http.delete('conversations');
     },
+
     updateTitle,
+
     updateTitleWithGeneratedTitle: async (conversationId: string) => {
-      const res = await http.getOnce<{
-        title: string;
-      }>(`conversation/${conversationId}/proposed-title`);
+      const res = await http.getOnce<{ title: string }>(
+        `conversation/${conversationId}/proposed-title`
+      );
       return updateTitle(conversationId, res.data.title);
     },
+
     mutateConversations: (
       conversations?:
         | ConversationMeta[]

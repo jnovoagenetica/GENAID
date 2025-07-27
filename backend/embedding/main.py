@@ -22,11 +22,11 @@ from embedding.loaders import UrlLoader
 from embedding.loaders.base import BaseLoader
 from embedding.loaders.s3 import S3FileLoader
 from embedding.wrapper import DocumentSplitter, Embedder
-from llama_index.core.node_parser import SentenceSplitter
+from llama_index.core.text_splitter import TokenTextSplitter  # <--- IMPORTACIÓN AÑADIDA
 from retry import retry
 from ulid import ULID
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(name)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "us-east-1")
@@ -77,7 +77,7 @@ def insert_to_postgres(
                 zip(sources, contents, embeddings)
             ):
                 id_ = str(ULID())
-                logger.info(f"Preview of content {i}: {content[:200]}")
+                logger.debug(f"Preview of content {i}: {content[:200]}")
                 values_to_insert.append(
                     (id_, bot_id, content, source, json.dumps(embedding))
                 )
@@ -111,6 +111,7 @@ def update_sync_status(
     )
 
 
+# --- INICIO DE LA SECCIÓN MODIFICADA ---
 def embed(
     loader: BaseLoader,
     contents: ListProxy,
@@ -119,24 +120,47 @@ def embed(
     chunk_size: int,
     chunk_overlap: int,
 ):
+    # Se reemplaza SentenceSplitter por TokenTextSplitter.
+    # TokenTextSplitter es más robusto para cortar texto por longitud, lo que garantiza
+    # que ningún chunk exceda el límite del modelo de embeddings, incluso si el texto
+    # no tiene una estructura clara de oraciones o párrafos.
     splitter = DocumentSplitter(
-        splitter=SentenceSplitter(
-            paragraph_separator=r"\n\n\n",
+        splitter=TokenTextSplitter(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
-            # Use length of text as token count for cohere-multilingual-v3
+            # Se mantiene el truco del tokenizer por longitud de caracteres, que es
+            # eficiente y adecuado para el modelo de Cohere.
             tokenizer=lambda text: [0] * len(text),
         )
     )
     embedder = Embedder(verbose=True)
 
+    # Cargar documentos desde el loader (p. ej. S3)
     documents = loader.load()
+    logger.info(f"Loaded {len(documents)} document(s) from loader.")
+    for i, doc in enumerate(documents):
+        logger.info(f"Document {i} initial size: {len(doc.text)} characters.")
+
+    # Dividir los documentos en chunks más pequeños
     splitted = splitter.split_documents(documents)
+    logger.info(f"Split documents into {len(splitted)} chunks.")
+    # Loguear el tamaño de los primeros chunks para verificar
+    for i, chunk in enumerate(splitted[:5]): # Loguear solo los primeros 5 para no saturar
+        logger.info(f"Chunk {i} final size: {len(chunk.text)} characters.")
+    
+    if not splitted:
+        logger.warning("Document splitting resulted in zero chunks. Nothing to embed.")
+        return
+
+    # Generar los embeddings para cada chunk
     splitted_embeddings = embedder.embed_documents(splitted)
 
+    # Agregar los resultados a las listas compartidas para el procesamiento paralelo
     contents.extend([t.page_content for t in splitted])
     sources.extend([t.metadata["source"] for t in splitted])
     embeddings.extend(splitted_embeddings)
+
+# --- FIN DE LA SECCIÓN MODIFICADA ---
 
 
 def main(
@@ -178,7 +202,7 @@ def main(
             )
             return
 
-        # Calculate embeddings
+        # Calcular embeddings
         with multiprocessing.Manager() as manager:
             contents: ListProxy = manager.list()
             sources: ListProxy = manager.list()
@@ -221,14 +245,18 @@ def main(
                     for future in futures:
                         future.get()
 
-            logger.info(f"Number of chunks: {len(contents)}")
+            logger.info(f"Total number of chunks to be inserted: {len(contents)}")
 
-            # Insert records into postgres
-            insert_to_postgres(bot_id, contents, sources, embeddings)
-            status_reason = "Successfully inserted to vector store."
+            if len(contents) > 0:
+                # Insert records into postgres
+                insert_to_postgres(bot_id, contents, sources, embeddings)
+                status_reason = "Successfully inserted to vector store."
+            else:
+                logger.warning("No content was generated to be inserted into the vector store.")
+                status_reason = "Source data did not produce any content to be embedded."
+
     except Exception as e:
-        logger.error("[ERROR] Failed to embed.")
-        logger.error(e)
+        logger.error("[ERROR] Failed to embed.", exc_info=True)
         update_sync_status(
             user_id,
             bot_id,
@@ -250,17 +278,23 @@ def main(
 if __name__ == "__main__":
     # Get dynamodb stream event
     event_json = os.getenv("EVENT")
+    if not event_json:
+        raise ValueError("Environment variable 'EVENT' is not set.")
+        
     logger.debug(f"event_json: {event_json}")
 
-    keys = json.loads(event_json)  # type:ignore
+    keys = json.loads(event_json)
     sk = keys["SK"]["S"]
-
     bot_id = decompose_bot_id(sk)
 
     pk = keys["PK"]["S"]
     user_id = pk
 
-    new_image = find_private_bot_by_id(user_id, bot_id)
+    try:
+        new_image = find_private_bot_by_id(user_id, bot_id)
+    except RecordNotFoundError:
+        logger.error(f"Bot with id {bot_id} for user {user_id} not found. Aborting.")
+        raise
 
     embedding_params = new_image.embedding_params
     chunk_size = embedding_params.chunk_size
@@ -271,6 +305,7 @@ if __name__ == "__main__":
     source_urls = knowledge.source_urls
     filenames = knowledge.filenames
 
+    logger.info(f"Starting embedding job for bot_id: {bot_id}")
     logger.info(f"source_urls to crawl: {source_urls}")
     logger.info(f"sitemap_urls to crawl: {sitemap_urls}")
     logger.info(f"filenames: {filenames}")

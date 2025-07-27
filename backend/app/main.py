@@ -1,10 +1,10 @@
-# --- INICIO DEL ARCHIVO: main.py (VERSIÓN FINAL CORREGIDA) ---
+# --- INICIO DEL ARCHIVO ---
 
-# 1. Cargar las variables de entorno
+# 1. Cargar las variables de entorno ANTES que cualquier otro módulo de la aplicación.
 from dotenv import load_dotenv
 load_dotenv(dotenv_path=".env.local")
 
-# 2. Importaciones
+# 2. AHORA SÍ, IMPORTAR EL RESTO DE LA APLICACIÓN
 import logging
 import os
 import traceback
@@ -23,7 +23,7 @@ from app.routes.conversation import router as conversation_router
 from app.routes.published_api import router as published_api_router
 from app.user import User
 from app.utils import is_running_on_lambda
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials
@@ -32,15 +32,15 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import ASGIApp, Message
 
-# --- CONFIGURACIÓN ---
-logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s - %(message)s")
-logger = logging.getLogger(__name__)
-print("--- MAIN.PY VERSIÓN FINAL CARGADA CORRECTAMENTE ---") # Marcador
 
+CORS_ALLOW_ORIGINS = os.environ.get("CORS_ALLOW_ORIGINS", "*")
 PUBLISHED_API_ID = os.environ.get("PUBLISHED_API_ID", None)
+
 is_published_api = PUBLISHED_API_ID is not None
 
-# ... (código de openapi_tags y title) ...
+logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s - %(message)s")
+logger = logging.getLogger(__name__)
+
 if not is_published_api:
     openapi_tags = [
         {"name": "conversation", "description": "Conversation API"},
@@ -59,36 +59,7 @@ app = FastAPI(
     title=title,
 )
 
-# /---------------------------------------\
-# |    INICIO DE LA CORRECCIÓN DE CORS    |
-# \---------------------------------------/
-# Se leen los orígenes permitidos desde las variables de entorno
-CORS_ALLOW_ORIGINS = os.environ.get("CORS_ALLOW_ORIGINS")
-allowed_origins = []
-if CORS_ALLOW_ORIGINS:
-    allowed_origins.extend(CORS_ALLOW_ORIGINS.split(','))
-else:
-    # Si no se especifica, se usan valores por defecto para desarrollo local
-    # Tu frontend corre en localhost:5173 (lo vemos en los errores)
-    allowed_origins = [
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ]
-    logger.warning(f"CORS_ALLOW_ORIGINS no está definida. Usando valores por defecto para desarrollo: {allowed_origins}")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins, # Usamos la lista que acabamos de crear
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-# /---------------------------------------\
-# |      FIN DE LA CORRECCIÓN DE CORS     |
-# \---------------------------------------/
-
-
-# --- INCLUSIÓN DE ROUTERS ---
 if not is_published_api:
     app.include_router(conversation_router)
     app.include_router(bot_router)
@@ -97,43 +68,112 @@ if not is_published_api:
 else:
     app.include_router(published_api_router)
 
-# --- MANEJADORES DE EXCEPCIONES (Sin cambios) ---
-# ... (todo tu código de app.add_exception_handler) ...
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ALLOW_ORIGINS.split(","),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
 def error_handler_factory(status_code: int) -> Callable[[Request, Exception], Response]:
     def error_handler(_: Request, exc: Exception) -> JSONResponse:
-        logger.error(exc); logger.error("".join(traceback.format_tb(exc.__traceback__)))
+        logger.error(exc)
+        logger.error("".join(traceback.format_tb(exc.__traceback__)))
         return JSONResponse({"errors": [str(exc)]}, status_code=status_code)
-    return error_handler
-app.add_exception_handler(RecordNotFoundError, error_handler_factory(404)); app.add_exception_handler(FileNotFoundError, error_handler_factory(404)); app.add_exception_handler(RecordAccessNotAllowedError, error_handler_factory(403)); app.add_exception_handler(ValueError, error_handler_factory(400)); app.add_exception_handler(TypeError, error_handler_factory(400)); app.add_exception_handler(AssertionError, error_handler_factory(400)); app.add_exception_handler(PermissionError, error_handler_factory(403)); app.add_exception_handler(ValidationError, error_handler_factory(422)); app.add_exception_handler(ResourceConflictError, error_handler_factory(409)); app.add_exception_handler(Exception, error_handler_factory(500));
+
+    return error_handler  # type: ignore
 
 
-# --- MIDDLEWARES DE AUTENTICACIÓN Y LOGGING (Sin cambios, pero con la corrección anterior) ---
-# ... (tu middleware add_current_user_to_request) ...
+app.add_exception_handler(RecordNotFoundError, error_handler_factory(404))
+app.add_exception_handler(FileNotFoundError, error_handler_factory(404))
+app.add_exception_handler(RecordAccessNotAllowedError, error_handler_factory(403))
+app.add_exception_handler(ValueError, error_handler_factory(400))
+app.add_exception_handler(TypeError, error_handler_factory(400))
+app.add_exception_handler(AssertionError, error_handler_factory(400))
+app.add_exception_handler(PermissionError, error_handler_factory(403))
+app.add_exception_handler(ValidationError, error_handler_factory(422))
+app.add_exception_handler(ResourceConflictError, error_handler_factory(409))
+app.add_exception_handler(Exception, error_handler_factory(500))
+
+
 @app.middleware("http")
-def add_current_user_to_request(request: Request, call_next: ASGIApp):
+async def add_current_user_to_request(request: Request, call_next: ASGIApp):
+    # Nota: el middleware asíncrono debe ser 'async def'
     if is_running_on_lambda():
+        # Lógica para cuando se ejecuta en AWS Lambda (producción)
         if not is_published_api:
-            authorization=request.headers.get("Authorization"); token_str=authorization.split(" ")[1] if authorization else ""; token=HTTPAuthorizationCredentials(scheme="Bearer", credentials=token_str); request.state.current_user=get_current_user(token)
+            authorization = request.headers.get("Authorization")
+            if authorization:
+                token_str = authorization.split(" ")[1]
+                token = HTTPAuthorizationCredentials(
+                    scheme="Bearer", credentials=token_str
+                )
+                request.state.current_user = get_current_user(token)
         else:
-            request.state.current_user = User(id=f"PUBLISHED_API#{PUBLISHED_API_ID}", name=PUBLISHED_API_ID, groups=[])
+            request.state.current_user = User(
+                id=f"PUBLISHED_API#{PUBLISHED_API_ID}",
+                name=PUBLISHED_API_ID,  # type: ignore
+                groups=[],
+            )
     else:
-        authorization=request.headers.get("Authorization")
+        # 3. Lógica para desarrollo local con AUTENTICACIÓN REAL
+        # Ahora que el .env.local se carga correctamente, podemos verificar el token de Cognito.
+        authorization = request.headers.get("Authorization")
         if authorization:
-            try: token_str=authorization.split(" ")[1]; token=HTTPAuthorizationCredentials(scheme="Bearer", credentials=token_str); request.state.current_user=get_current_user(token)
-            except IndexError: request.state.current_user=User(id="test_user_invalid_token", name="test_user_invalid_token", groups=[])
+            try:
+                token_str = authorization.split(" ")[1]
+                token = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token_str)
+                request.state.current_user = get_current_user(token)
+            except IndexError:
+                # Si el encabezado de autorización no está bien formado
+                request.state.current_user = User(id="anonymous_user", name="anonymous_user", groups=[])
         else:
-            request.state.current_user=User(id="test_user", name="test_user", groups=[])
-    response=call_next(request); return response
+            # Si el frontend no envía token, se usa un usuario de prueba.
+            request.state.current_user = User(
+                id="test_user", name="test_user", groups=[]
+            )
 
-# ... (tu middleware add_log_requests corregido) ...
+    response = await call_next(request)  # type: ignore
+    return response
+
+
+# --- MIDDLEWARE DE LOGGING CORREGIDO ---
 @app.middleware("http")
 async def add_log_requests(request: Request, call_next: ASGIApp):
-    logger.info(f"Request path: {request.url.path}"); logger.info(f"Request method: {request.method}"); logger.info(f"Request headers: {request.headers}")
-    content_type=request.headers.get("content-type", "")
-    if "multipart/form-data" in content_type: logger.info("Request body: [multipart/form-data stream - omitido del log para evitar errores]")
-    else:
-        try: body=await request.body(); logger.info(f"Request body: {body.decode('utf-8', errors='ignore')[:1000]}..."); request._body=body
-        except Exception as e: logger.warning(f"No se pudo leer el request body para el log: {e}")
-    response=await call_next(request); return response
+    logger.info(f"Request path: {request.url.path}")
+    logger.info(f"Request method: {request.method}")
+    # Convertir las cabeceras a un diccionario para un logging más limpio
+    logger.info(f"Request headers: {dict(request.headers)}")
 
-# --- FIN DEL ARCHIVO ---
+    content_type = request.headers.get("content-type", "")
+
+    # Si la petición es una subida de archivos (multipart), no intentamos leer el cuerpo
+    # como texto para evitar errores de decodificación con datos binarios.
+    if "multipart/form-data" in content_type:
+        logger.info("Request body: [Multipart/form-data content not logged as text]")
+    else:
+        # Para otros tipos de contenido (como application/json), leemos el cuerpo.
+        # Esto es importante porque 'await request.body()' consume el stream.
+        # Si lo hiciéramos para multipart, el endpoint no podría leer el archivo.
+        body = await request.body()
+        try:
+            # Intentamos decodificar como UTF-8 y logueamos solo una parte
+            logger.info(f"Request body: {body.decode('utf-8')[:1000]}...")
+        except UnicodeDecodeError:
+            # Si falla la decodificación, lo registramos sin causar un error 500.
+            logger.info("Request body: [Binary or non-UTF-8 content, not logged as text]")
+        
+        # Como hemos consumido el cuerpo, necesitamos una forma de que el endpoint lo lea.
+        # Starlette lo maneja almacenando el cuerpo en `request.state`.
+        # Creamos una nueva función 'receive' para pasarla a call_next.
+        async def receive() -> Message:
+            return {"type": "http.request", "body": body}
+
+        response = await call_next({"type": "http", "state": request.state, "scope": request.scope, "receive": receive, "send": request._send}) # type: ignore
+        return response
+
+    response = await call_next(request)  # type: ignore
+    return response

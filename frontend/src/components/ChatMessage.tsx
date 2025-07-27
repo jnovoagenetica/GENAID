@@ -6,6 +6,10 @@ import {
   PiNotePencil,
   PiThumbsDown,
   PiThumbsDownFill,
+  // --- INICIO DE LA MODIFICACIÓN ---
+  PiFilePdf, // Ícono específico para PDFs
+  PiFile, // Ícono genérico para otros archivos
+  // --- FIN DE LA MODIFICACIÓN ---
 } from 'react-icons/pi';
 import { BaseProps } from '../@types/common';
 import {
@@ -125,20 +129,40 @@ const ChatMessage: React.FC<Props> = (props) => {
         <div className="ml-5 grow ">
           {chatContent?.role === 'user' && !isEdit && (
             <div>
+              {/* --- INICIO DE LA MODIFICACIÓN --- */}
               {chatContent.content.map((content, idx) => {
+                // Caso 1: Es una imagen
                 if (content.contentType === 'image') {
                   const imageUrl = `data:${content.mediaType};base64,${content.body}`;
                   return (
                     <img
                       key={idx}
                       src={imageUrl}
-                      className="mb-2 h-48 cursor-pointer"
+                      className="mb-2 h-48 cursor-pointer rounded-md border"
                       onClick={() => {
                         setPreviewImageUrl(imageUrl);
                         setIsOpenPreviewImage(true);
                       }}
+                      alt="Imagen adjunta"
                     />
                   );
+                // Caso 2: Es un archivo adjunto (PDF, DOCX, etc.)
+                } else if (content.contentType === 'attachment') {
+                  return (
+                    <div
+                      key={idx}
+                      className="mb-2 flex items-center gap-2 rounded-md border bg-gray-100 p-2 text-gray-700">
+                      {content.mediaType === 'application/pdf' ? (
+                        <PiFilePdf className="text-xl text-red-600" />
+                      ) : (
+                        <PiFile className="text-xl text-gray-500" />
+                      )}
+                      <span className="text-sm font-medium">
+                        {content.file_name ?? 'Archivo adjunto'}
+                      </span>
+                    </div>
+                  );
+                // Caso 3: Es texto
                 } else {
                   return (
                     <React.Fragment key={idx}>
@@ -149,6 +173,7 @@ const ChatMessage: React.FC<Props> = (props) => {
                   );
                 }
               })}
+              {/* --- FIN DE LA MODIFICACIÓN --- */}
               <ModalDialog
                 isOpen={isOpenPreviewImage}
                 onClose={() => setIsOpenPreviewImage(false)}
@@ -159,6 +184,7 @@ const ChatMessage: React.FC<Props> = (props) => {
                   <img
                     src={previewImageUrl}
                     className="mx-auto max-h-[80vh] max-w-full rounded-md"
+                    alt="Vista previa de la imagen"
                   />
                 )}
               </ModalDialog>

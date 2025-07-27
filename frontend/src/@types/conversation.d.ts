@@ -9,11 +9,30 @@ export type Model =
   | 'mistral-7b-instruct'
   | 'mixtral-8x7b-instruct'
   | 'mistral-large';
-export type Content = {
-  contentType: 'text' | 'image';
-  mediaType?: string;
-  body: string;
-};
+
+// --- INICIO DE LA MODIFICACIÓN CLAVE ---
+// Hemos convertido 'Content' en una "unión discriminada".
+// Esto permite que el objeto tenga diferentes propiedades obligatorias
+// dependiendo del valor de 'contentType'.
+
+export type Content =
+  | {
+      contentType: 'text';
+      body: string;
+      mediaType?: string; // El mediaType es opcional para el texto
+    }
+  | {
+      contentType: 'image';
+      body: string; // Contenido en Base64
+      mediaType: string; // ej. 'image/png'
+    }
+  | {
+      contentType: 'attachment';
+      body: string; // Contenido en Base64
+      mediaType: string; // ej. 'application/pdf'
+      file_name?: string; // La propiedad que faltaba para el nombre del archivo
+    };
+// --- FIN DE LA MODIFICACIÓN CLAVE ---
 
 export type MessageContent = {
   role: Role;

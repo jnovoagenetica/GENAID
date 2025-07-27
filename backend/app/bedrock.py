@@ -179,7 +179,13 @@ def compose_args_for_converse_api(
                     }
                 }
             ]
+        # --- INICIO DE LA MODIFICACIÓN ---
         elif c.content_type == "attachment":
+            # Bedrock espera los bytes originales del archivo, no una cadena Base64.
+            # Aquí decodificamos la cadena Base64 que recibimos desde conversation.py
+            # para obtener de vuelta los bytes originales del archivo (PDF, DOCX, etc.).
+            file_bytes = base64.b64decode(c.body)
+
             return [
                 {
                     "document": {
@@ -188,15 +194,12 @@ def compose_args_for_converse_api(
                         ),
                         "name": Path(c.file_name).stem,  # type: ignore
                         "source": {
-                            "bytes": (
-                                c.body.encode("utf-8")
-                                if isinstance(c.body, str)
-                                else c.body
-                            )
-                        },  # And this line
+                            "bytes": file_bytes # <-- Pasamos los bytes decodificados, no el texto base64.
+                        },
                     }
                 }
             ]
+        # --- FIN DE LA MODIFICACIÓN ---
         else:
             raise NotImplementedError(f"Unsupported content type: {c.content_type}")
 

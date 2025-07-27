@@ -8,13 +8,8 @@ const api = axios.create({
   baseURL: import.meta.env.VITE_APP_API_ENDPOINT,
 });
 
-
-// /---------------------------------------\
-// |    INICIO DE LA CORRECCIÓN CLAVE      |
-// \---------------------------------------/
 // HTTP Request Preprocessing
 api.interceptors.request.use(async (config) => {
-  // Si está autenticado, se añade el token de ID al encabezado de la petición
   try {
     const user = await Auth.currentAuthenticatedUser();
     if (user) {
@@ -22,34 +17,23 @@ api.interceptors.request.use(async (config) => {
       config.headers['Authorization'] = 'Bearer ' + token;
     }
   } catch (e) {
-    // No hacer nada si el usuario no está autenticado
+    // Usuario no autenticado
   }
 
-  // Lógica inteligente para el Content-Type:
-  // Si el cuerpo de la petición NO es FormData, entonces asumimos que es JSON.
+  // Solo establecer Content-Type si no es FormData
   if (!(config.data instanceof FormData)) {
     config.headers['Content-Type'] = 'application/json';
   }
-  // Si SÍ es FormData, no ponemos ninguna cabecera de Content-Type.
-  // El navegador lo hará automáticamente, lo cual es necesario para las subidas de archivos.
 
   return config;
 });
-// /---------------------------------------\
-// |      FIN DE LA CORRECCIÓN CLAVE       |
-// \---------------------------------------/
-
 
 const fetcher = (url: string) => {
   return api.get(url).then((res) => res.data);
 };
 
 const fetcfWithParams = ([url, params]: [string, Record<string, any>]) => {
-  return api
-    .get(url, {
-      params,
-    })
-    .then((res) => res.data);
+  return api.get(url, { params }).then((res) => res.data);
 };
 
 const useHttp = () => {
@@ -58,7 +42,6 @@ const useHttp = () => {
       url: string | [string, ...unknown[]] | null,
       config?: SWRConfiguration
     ) => {
-      // eslint-disable-next-line react-hooks/rules-of-hooks
       return useSWR<Data, AxiosError<Error>>(
         url,
         typeof url === 'string' ? fetcher : fetcfWithParams,
@@ -75,16 +58,10 @@ const useHttp = () => {
     ) => {
       return new Promise<AxiosResponse<RES>>((resolve, reject) => {
         api
-          .get<RES, AxiosResponse<RES>, DATA>(url, {
-            params,
-          })
-          .then((data) => {
-            resolve(data);
-          })
+          .get<RES, AxiosResponse<RES>, DATA>(url, { params })
+          .then(resolve)
           .catch((err) => {
-            if (errorProcess) {
-              errorProcess(err);
-            }
+            if (errorProcess) errorProcess(err);
             reject(err);
           });
       });
@@ -93,18 +70,25 @@ const useHttp = () => {
     post: <RES = any, DATA = any>(
       url: string,
       data: DATA,
-      errorProcess?: (err: any) => void
+      optionsOrErrorProcess?: { headers?: any } | ((err: any) => void),
+      maybeErrorProcess?: (err: any) => void
     ) => {
+      const isFormData = data instanceof FormData;
+      const headers =
+        !isFormData && typeof optionsOrErrorProcess === 'object'
+          ? optionsOrErrorProcess.headers
+          : undefined;
+      const errorProcess =
+        typeof optionsOrErrorProcess === 'function'
+          ? optionsOrErrorProcess
+          : maybeErrorProcess;
+
       return new Promise<AxiosResponse<RES>>((resolve, reject) => {
         api
-          .post<RES, AxiosResponse<RES>, DATA>(url, data)
-          .then((data) => {
-            resolve(data);
-          })
+          .post<RES, AxiosResponse<RES>, DATA>(url, data, { headers })
+          .then(resolve)
           .catch((err) => {
-            if (errorProcess) {
-              errorProcess(err);
-            }
+            if (errorProcess) errorProcess(err);
             reject(err);
           });
       });
@@ -118,13 +102,9 @@ const useHttp = () => {
       return new Promise<AxiosResponse<RES>>((resolve, reject) => {
         api
           .put<RES, AxiosResponse<RES>, DATA>(url, data)
-          .then((data) => {
-            resolve(data);
-          })
+          .then(resolve)
           .catch((err) => {
-            if (errorProcess) {
-              errorProcess(err);
-            }
+            if (errorProcess) errorProcess(err);
             reject(err);
           });
       });
@@ -137,16 +117,10 @@ const useHttp = () => {
     ) => {
       return new Promise<AxiosResponse<RES>>((resolve, reject) => {
         api
-          .delete<RES, AxiosResponse<RES>, DATA>(url, {
-            params,
-          })
-          .then((data) => {
-            resolve(data);
-          })
+          .delete<RES, AxiosResponse<RES>, DATA>(url, { params })
+          .then(resolve)
           .catch((err) => {
-            if (errorProcess) {
-              errorProcess(err);
-            }
+            if (errorProcess) errorProcess(err);
             reject(err);
           });
       });
@@ -160,13 +134,9 @@ const useHttp = () => {
       return new Promise<AxiosResponse<RES>>((resolve, reject) => {
         api
           .patch<RES, AxiosResponse<RES>, DATA>(url, data)
-          .then((data) => {
-            resolve(data);
-          })
+          .then(resolve)
           .catch((err) => {
-            if (errorProcess) {
-              errorProcess(err);
-            }
+            if (errorProcess) errorProcess(err);
             reject(err);
           });
       });
