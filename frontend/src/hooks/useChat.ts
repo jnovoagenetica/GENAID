@@ -633,6 +633,16 @@ const useChat = () => {
     return length_ === 0 ? false : messages[length_ - 1].role === 'user';
   }, [messages]);
 
+  // --- INICIO DE LA CORRECCIÓN ---
+  // Se define la función `getRelatedDocuments` usando useCallback para estabilizarla.
+  const getRelatedDocuments = useCallback(
+    (messageId: string) => {
+      return relatedDocuments[messageId] ?? [];
+    },
+    [relatedDocuments] // La dependencia es `relatedDocuments`, que es estable.
+  );
+  // --- FIN DE LA CORRECCIÓN ---
+
   return {
     hasError,
     setConversationId,
@@ -671,9 +681,10 @@ const useChat = () => {
         });
       }
     },
-    getRelatedDocuments: (messageId: string) => {
-      return relatedDocuments[messageId] ?? [];
-    },
+    // --- INICIO DE LA CORRECCIÓN ---
+    // Se devuelve la versión estable de la función.
+    getRelatedDocuments,
+    // --- FIN DE LA CORRECCIÓN ---
     giveFeedback: (messageId: string, feedback: PutFeedbackRequest) => {
       return feedbackApi
         .putFeedback(conversationId, messageId, feedback)

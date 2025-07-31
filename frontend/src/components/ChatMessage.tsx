@@ -1,4 +1,4 @@
-// Archivo: ChatMessage.tsx (CORREGIDO Y AJUSTADO A useChat.ts)
+// Archivo: ChatMessage.tsx (CORRECCIÓN FINAL)
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import ChatMessageMarkdown from './ChatMessageMarkdown';
@@ -57,11 +57,14 @@ const ChatMessage: React.FC<Props> = (props) => {
   const { getRelatedDocuments, conversationId, giveFeedback } = useChat();
   const [relatedDocuments, setRelatedDocuments] = useState<RelatedDocument[]>([]);
 
+  // --- INICIO DE LA CORRECCIÓN ---
   useEffect(() => {
     if (props.chatContent) {
       setRelatedDocuments(getRelatedDocuments(props.chatContent.id));
     }
-  }, [props.chatContent, getRelatedDocuments]);
+    // Se cambia la dependencia del objeto `props.chatContent` a su `id`, que es estable.
+  }, [props.chatContent?.id, getRelatedDocuments]);
+  // --- FIN DE LA CORRECCIÓN ---
 
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [isOpenPreviewImage, setIsOpenPreviewImage] = useState(false);
@@ -144,7 +147,6 @@ const ChatMessage: React.FC<Props> = (props) => {
                       }}
                     />
                   );
-                  // CORRECCIÓN 3: Comprobar el tipo correcto: 'textAttachment'
                 } else if (content.contentType === 'textAttachment') {
                   return <FileAttachmentView key={idx} fileName={content.fileName} />;
                 } else {
@@ -232,7 +234,6 @@ const ChatMessage: React.FC<Props> = (props) => {
       <DialogFeedback
         isOpen={isFeedbackOpen}
         thumbsUp={false}
-        // CORRECCIÓN 4: El tipo ya es `null | Feedback`, no necesita `?? undefined`
         feedback={chatContent?.feedback ?? undefined}
         onClose={() => setIsFeedbackOpen(false)}
         onSubmit={(feedback) => {
