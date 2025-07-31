@@ -8,8 +8,8 @@ import React, {
 import ButtonSend from './ButtonSend';
 import Textarea from './Textarea';
 import useChat from '../hooks/useChat';
-import { PiX } from 'react-icons/pi';
-import { TbPhotoPlus } from 'react-icons/tb';
+// Usaremos PiPaperclip como el ícono unificado
+import { PiX, PiPaperclip, PiArrowsCounterClockwise } from 'react-icons/pi'; // <-- Asegúrate de que PiArrowsCounterClockwise esté aquí si lo usas
 import { useTranslation } from 'react-i18next';
 import ButtonIcon from './ButtonIcon';
 import useModel from '../hooks/useModel';
@@ -20,7 +20,9 @@ import ButtonFileChoose from './ButtonFileChoose';
 import { BaseProps } from '../@types/common';
 import ModalDialog from './ModalDialog';
 import HelpfulInfoModal from './HelpfulInfoModal';
+// import Button from './Button'; // <-- Descomenta esto si usas el botón de regenerar
 
+// Props actualizadas para el botón unificado
 type Props = BaseProps & {
   disabledSend?: boolean;
   disabled?: boolean;
@@ -28,8 +30,11 @@ type Props = BaseProps & {
   dndMode?: boolean;
   onSend: (content: string, base64EncodedImages?: string[]) => void;
   onRegenerate: () => void;
+  attachedFileName: string | null;
+  onRemoveAttachedFile: () => void;
+  // Nueva prop para pasar el archivo de documento al padre (ChatPage)
+  onAttachDocument: (file: File) => void;
 };
-
 
 const MAX_IMAGE_WIDTH = 800;
 const MAX_IMAGE_HEIGHT = 800;
@@ -75,7 +80,11 @@ const useInputChatContentState = create<{
 }));
 
 const InputChatContent: React.FC<Props> = (props) => {
+  const { attachedFileName, onRemoveAttachedFile, onAttachDocument } = props;
+
+  // --- AÑADIDO: Se reintroduce el estado del código antiguo para mostrar los botones ---
   const [showHelpfulInfo] = useState(true);
+  
   const { t } = useTranslation();
   const { postingMessage, hasError, messages } = useChat();
   const { disabledImageUpload, model, acceptMediaType } = useModel();
@@ -93,14 +102,27 @@ const InputChatContent: React.FC<Props> = (props) => {
   } = useInputChatContentState();
 
   useEffect(() => {
-    clearBase64EncodedImages();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    // Cuando el nombre del archivo adjunto se limpia desde el padre (después de enviar),
+    // también limpiamos las imágenes por si acaso.
+    if (!attachedFileName) {
+      clearBase64EncodedImages();
+    }
+  }, [attachedFileName, clearBase64EncodedImages]);
 
+  const hasAttachment = !!attachedFileName;
   const disabledSend = useMemo(() => {
-    return content === '' || props.disabledSend || hasError;
-  }, [hasError, content, props.disabledSend]);
-
+    const isInputEmpty =
+      content.trim() === '' &&
+      base64EncodedImages.length === 0 &&
+      !hasAttachment;
+    return props.disabledSend || hasError || isInputEmpty;
+  }, [
+    hasError,
+    content,
+    props.disabledSend,
+    base64EncodedImages.length,
+    hasAttachment,
+  ]);
 
   const inputRef = useRef<HTMLDivElement>(null);
 
@@ -136,7 +158,6 @@ const InputChatContent: React.FC<Props> = (props) => {
           const width = img.naturalWidth;
           const height = img.naturalHeight;
 
-          // determine image size
           const aspectRatio = width / height;
           let newWidth;
           let newHeight;
@@ -152,7 +173,6 @@ const InputChatContent: React.FC<Props> = (props) => {
                 : width;
           }
 
-          // resize image using canvas
           const canvas = document.createElement('canvas');
           const ctx = canvas.getContext('2d');
           canvas.width = newWidth;
@@ -168,6 +188,38 @@ const InputChatContent: React.FC<Props> = (props) => {
     [pushBase64EncodedImage]
   );
 
+  // Nuevo manejador de archivos unificado
+  const handleFileSelection = useCallback(
+    (fileList: FileList) => {
+      if (!fileList || fileList.length === 0) return;
+
+      const file = fileList[0];
+      if (!file) return;
+
+      if (file.type.startsWith('image/')) {
+        encodeAndPushImage(file);
+      } else {
+        if (hasAttachment) {
+          alert(
+            t(
+              'error.onlyOneDocument',
+              'Solo puedes adjuntar un documento a la vez.'
+            )
+          );
+          return;
+        }
+        onAttachDocument(file);
+      }
+    },
+    [encodeAndPushImage, onAttachDocument, hasAttachment, t]
+  );
+
+  // Tipos de archivo aceptados combinados
+  const documentAcceptTypes = '.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,.html';
+  const combinedAcceptTypes = useMemo(() => {
+    return [...acceptMediaType, documentAcceptTypes].join(',');
+  }, [acceptMediaType]);
+
   useEffect(() => {
     const currentElem = inputRef?.current;
     const keypressListener = (e: DocumentEventMap['keypress']) => {
@@ -182,20 +234,7 @@ const InputChatContent: React.FC<Props> = (props) => {
     currentElem?.addEventListener('keypress', keypressListener);
 
     const pasteListener = (e: DocumentEventMap['paste']) => {
-      const clipboardItems = e.clipboardData?.items;
-      if (!clipboardItems || clipboardItems.length === 0) {
-        return;
-      }
-
-      for (let i = 0; i < clipboardItems.length; i++) {
-        if (model?.supportMediaType.includes(clipboardItems[i].type)) {
-          const pastedFile = clipboardItems[i].getAsFile();
-          if (pastedFile) {
-            encodeAndPushImage(pastedFile);
-            e.preventDefault();
-          }
-        }
-      }
+      handleFileSelection(e.clipboardData?.files ?? new DataTransfer().files);
     };
     currentElem?.addEventListener('paste', pasteListener);
 
@@ -204,18 +243,6 @@ const InputChatContent: React.FC<Props> = (props) => {
       currentElem?.removeEventListener('paste', pasteListener);
     };
   });
-
-  const onChangeImageFile = useCallback(
-    (fileList: FileList) => {
-      for (let i = 0; i < fileList.length; i++) {
-        const file = fileList.item(i);
-        if (file) {
-          encodeAndPushImage(file);
-        }
-      }
-    },
-    [encodeAndPushImage]
-  );
 
   const onDragOver: React.DragEventHandler<HTMLDivElement> = useCallback(
     (e) => {
@@ -227,12 +254,10 @@ const InputChatContent: React.FC<Props> = (props) => {
   const onDrop: React.DragEventHandler<HTMLDivElement> = useCallback(
     (e) => {
       e.preventDefault();
-      onChangeImageFile(e.dataTransfer.files);
+      handleFileSelection(e.dataTransfer.files);
     },
-    [onChangeImageFile]
+    [handleFileSelection]
   );
-
-  
 
   return (
     <>
@@ -249,11 +274,24 @@ const InputChatContent: React.FC<Props> = (props) => {
           props.className,
           'relative mb-7 flex w-11/12 flex-col rounded-xl border border-black/10 bg-white shadow-[0_0_30px_7px] shadow-light-gray/15 md:w-10/12 lg:w-4/6 xl:w-3/6'
         )}>
+        {/* UI para mostrar el nombre del documento adjunto */}
+        {attachedFileName && (
+          <div className="flex items-center justify-between p-2 text-sm border-b border-gray-200 bg-gray-50 rounded-t-xl">
+            <span className="text-gray-600 truncate">
+              {t('bot.label.attached', 'Adjunto')}: {attachedFileName}
+            </span>
+            <ButtonIcon
+              className="text-gray-500 hover:text-red-500"
+              onClick={onRemoveAttachedFile}>
+              <PiX />
+            </ButtonIcon>
+          </div>
+        )}
+
         <div className="flex w-full">
           <Textarea
             className={twMerge(
-              'm-1  bg-transparent scrollbar-thin scrollbar-thumb-light-gray',
-              disabledImageUpload ? 'pr-6' : 'pr-12'
+              'm-1 bg-transparent scrollbar-thin scrollbar-thumb-light-gray pr-12'
             )}
             placeholder={props.placeholder ?? t('app.inputMessage')}
             disabled={props.disabled}
@@ -262,16 +300,18 @@ const InputChatContent: React.FC<Props> = (props) => {
             onChange={setContent}
           />
         </div>
+
         <div className="absolute bottom-0 right-0 flex items-center">
-          {!disabledImageUpload && (
-            <ButtonFileChoose
-              disabled={postingMessage}
-              icon
-              accept={acceptMediaType.join(',')}
-              onChange={onChangeImageFile}>
-              <TbPhotoPlus />
-            </ButtonFileChoose>
-          )}
+          {/* Botón de subida unificado */}
+          <ButtonFileChoose
+            disabled={postingMessage || hasAttachment} // Deshabilitar si se envía o ya hay un doc
+            icon
+            accept={combinedAcceptTypes}
+            onChange={handleFileSelection}
+            className="m-1 text-gray-600 hover:text-black">
+            <PiPaperclip size={20} />
+          </ButtonFileChoose>
+
           <ButtonSend
             className="m-2 align-bottom"
             disabled={disabledSend || props.disabled}
@@ -279,6 +319,8 @@ const InputChatContent: React.FC<Props> = (props) => {
             onClick={sendContent}
           />
         </div>
+
+        {/* UI para mostrar las imágenes adjuntas */}
         {base64EncodedImages.length > 0 && (
           <div className="relative m-2 mr-24 flex flex-wrap gap-3">
             {base64EncodedImages.map((imageFile, idx) => (
@@ -311,37 +353,35 @@ const InputChatContent: React.FC<Props> = (props) => {
             <ModalDialog
               isOpen={isOpenPreviewImage}
               onClose={() => setIsOpenPreviewImage(false)}
-              // Set image null after transition end
               onAfterLeave={() => setPreviewImageUrl(null)}
               widthFromContent={true}>
               {previewImageUrl && (
                 <img
                   src={previewImageUrl}
                   className="mx-auto max-h-[80vh] max-w-full rounded-md"
-                  alt='Preview'
+                  alt="Preview"
                 />
               )}
             </ModalDialog>
           </div>
         )}
+
         {messages.some((m) => m.role === 'assistant') && (
           <div className="absolute -top-14 right-0 flex gap-2">
-      
             {/**Modal de Referencias */}
-            {showHelpfulInfo && (
-              <HelpfulInfoModal />
-            )}
+            {/* --- DESCOMENTADO: Se vuelve a activar el modal del código antiguo --- */}
+            {showHelpfulInfo && <HelpfulInfoModal />}
 
-          {/* Botón de Regenerar */}
-          {/*  <Button
-            className="bg-aws-paper p-2 text-sm"
-            outlined
-            disabled={disabledRegenerate || props.disabled}
-            onClick={props.onRegenerate}
-          >
-          <PiArrowsCounterClockwise className="mr-2" />
-            {t('button.regenerate')}
-          </Button> */} 
+            {/* Botón de Regenerar */}
+            {/*  <Button
+              className="bg-aws-paper p-2 text-sm"
+              outlined
+              disabled={props.disabled || postingMessage}
+              onClick={props.onRegenerate}
+            >
+            <PiArrowsCounterClockwise className="mr-2" />
+              {t('button.regenerate')}
+            </Button> */}
           </div>
         )}
       </div>

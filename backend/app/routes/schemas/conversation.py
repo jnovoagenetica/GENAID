@@ -27,7 +27,7 @@ type_model_name = Literal[
 
 
 class Content(BaseSchema):
-    content_type: Literal["text", "image", "attachment"] = Field(
+    content_type: Literal["text", "image", "textAttachment"] = Field(
         ..., description="Content type. Note that image is only available for claude 3."
     )
     media_type: str | None = Field(

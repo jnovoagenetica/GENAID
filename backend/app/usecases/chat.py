@@ -466,10 +466,25 @@ def propose_conversation_title(
     # Fetch existing conversation
     conversation = find_conversation_by_id(user_id, conversation_id)
 
-    messages = trace_to_root(
+    # --- INICIO DE LA MODIFICACIÓN ---
+    messages_with_attachment = trace_to_root(
         node_id=conversation.last_message_id,
         message_map=conversation.message_map,
     )
+
+    # Create a new list of messages, keeping only the text content
+    messages = []
+    for msg in messages_with_attachment:
+        text_contents = [
+            c for c in msg.content if c.content_type == "text"
+        ]
+        # Only append message if it has text content
+        if text_contents:
+            # Create a new message model with filtered content
+            new_msg = msg.model_copy(deep=True)
+            new_msg.content = text_contents
+            messages.append(new_msg)
+    # --- FIN DE LA MODIFICACIÓN ---
 
     # Append message to generate title
     new_message = MessageModel(

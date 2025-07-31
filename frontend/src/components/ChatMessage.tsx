@@ -1,3 +1,5 @@
+// Archivo: ChatMessage.tsx (CORREGIDO Y AJUSTADO A useChat.ts)
+
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import ChatMessageMarkdown from './ChatMessageMarkdown';
 import ButtonCopy from './ButtonCopy';
@@ -6,6 +8,8 @@ import {
   PiNotePencil,
   PiThumbsDown,
   PiThumbsDownFill,
+  PiFilePdf,
+  PiFile,
 } from 'react-icons/pi';
 import { BaseProps } from '../@types/common';
 import {
@@ -21,6 +25,23 @@ import { useTranslation } from 'react-i18next';
 import useChat from '../hooks/useChat';
 import DialogFeedback from './DialogFeedback';
 
+const FileAttachmentView: React.FC<{ fileName: string }> = ({ fileName }) => {
+  const isPdf = fileName.toLowerCase().endsWith('.pdf');
+  return (
+    <div className="mt-2 mb-1 p-3 border border-gray-300 bg-gray-100 rounded-lg flex items-center space-x-3">
+      {isPdf ? (
+        <PiFilePdf className="text-red-500 w-8 h-8 flex-shrink-0" />
+      ) : (
+        <PiFile className="text-gray-500 w-8 h-8 flex-shrink-0" />
+      )}
+      <div className="flex-grow min-w-0">
+        <p className="text-sm font-medium text-gray-800 truncate">{fileName}</p>
+        <p className="text-xs text-gray-500">Archivo adjunto</p>
+      </div>
+    </div>
+  );
+};
+
 type Props = BaseProps & {
   chatContent?: DisplayMessageContent;
   onChangeMessageId?: (messageId: string) => void;
@@ -34,16 +55,13 @@ const ChatMessage: React.FC<Props> = (props) => {
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
 
   const { getRelatedDocuments, conversationId, giveFeedback } = useChat();
-  const [relatedDocuments, setRelatedDocuments] = useState<RelatedDocument[]>(
-    []
-  );
+  const [relatedDocuments, setRelatedDocuments] = useState<RelatedDocument[]>([]);
 
   useEffect(() => {
     if (props.chatContent) {
       setRelatedDocuments(getRelatedDocuments(props.chatContent.id));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.chatContent]);
+  }, [props.chatContent, getRelatedDocuments]);
 
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [isOpenPreviewImage, setIsOpenPreviewImage] = useState(false);
@@ -56,31 +74,21 @@ const ChatMessage: React.FC<Props> = (props) => {
     return chatContent?.sibling.findIndex((s) => s === chatContent.id) ?? -1;
   }, [chatContent]);
 
-  const onClickChange = useCallback(
-    (idx: number) => {
-      props.onChangeMessageId
-        ? props.onChangeMessageId(chatContent?.sibling[idx] ?? '')
-        : null;
-    },
-    [chatContent?.sibling, props]
-  );
+  const onClickChange = useCallback((idx: number) => {
+    props.onChangeMessageId?.(chatContent?.sibling[idx] ?? '');
+  }, [chatContent?.sibling, props]);
 
   const onSubmit = useCallback(() => {
-    props.onSubmit
-      ? props.onSubmit(chatContent?.sibling[0] ?? '', changedContent)
-      : null;
+    props.onSubmit?.(chatContent?.sibling[0] ?? '', changedContent);
     setIsEdit(false);
   }, [changedContent, chatContent?.sibling, props]);
 
-  const handleFeedbackSubmit = useCallback(
-    (messageId: string, feedback: PutFeedbackRequest) => {
-      if (chatContent && conversationId) {
-        giveFeedback(messageId, feedback);
-      }
-      setIsFeedbackOpen(false);
-    },
-    [chatContent, conversationId, giveFeedback]
-  );
+  const handleFeedbackSubmit = useCallback((messageId: string, feedback: PutFeedbackRequest) => {
+    if (chatContent && conversationId) {
+      giveFeedback(messageId, feedback);
+    }
+    setIsFeedbackOpen(false);
+  }, [chatContent, conversationId, giveFeedback]);
 
   return (
     <div className={`${props.className ?? ''} grid grid-cols-12 gap-2 p-3 `}>
@@ -90,9 +98,7 @@ const ChatMessage: React.FC<Props> = (props) => {
             <ButtonIcon
               className="text-xs"
               disabled={nodeIndex === 0}
-              onClick={() => {
-                onClickChange(nodeIndex - 1);
-              }}>
+              onClick={() => onClickChange(nodeIndex - 1)}>
               <PiCaretLeftBold />
             </ButtonIcon>
             {nodeIndex + 1}
@@ -101,9 +107,7 @@ const ChatMessage: React.FC<Props> = (props) => {
             <ButtonIcon
               className="text-xs"
               disabled={nodeIndex >= (chatContent?.sibling.length ?? 0) - 1}
-              onClick={() => {
-                onClickChange(nodeIndex + 1);
-              }}>
+              onClick={() => onClickChange(nodeIndex + 1)}>
               <PiCaretLeftBold className="rotate-180" />
             </ButtonIcon>
           </div>
@@ -113,12 +117,12 @@ const ChatMessage: React.FC<Props> = (props) => {
       <div className="order-first col-span-12 flex lg:order-none lg:col-span-8 lg:col-start-3">
         {chatContent?.role === 'user' && (
           <div className="min-w-[2.3rem] max-w-[2.3rem]">
-            <img src="/images/mi-avatar.png" className="rounded" />
+            <img src="/images/mi-avatar.png" className="rounded" alt="User Avatar" />
           </div>
         )}
         {chatContent?.role === 'assistant' && (
           <div className="min-w-[2.3rem] max-w-[2.3rem]">
-            <img src="/images/bedrock_icon_64.png" className="rounded" />
+            <img src="/images/GeneticaLogoAid.png" className="rounded" alt="Bot Avatar" />
           </div>
         )}
 
@@ -132,6 +136,7 @@ const ChatMessage: React.FC<Props> = (props) => {
                     <img
                       key={idx}
                       src={imageUrl}
+                      alt={`user-upload-${idx}`}
                       className="mb-2 h-48 cursor-pointer"
                       onClick={() => {
                         setPreviewImageUrl(imageUrl);
@@ -139,6 +144,9 @@ const ChatMessage: React.FC<Props> = (props) => {
                       }}
                     />
                   );
+                  // CORRECCIÓN 3: Comprobar el tipo correcto: 'textAttachment'
+                } else if (content.contentType === 'textAttachment') {
+                  return <FileAttachmentView key={idx} fileName={content.fileName} />;
                 } else {
                   return (
                     <React.Fragment key={idx}>
@@ -152,13 +160,13 @@ const ChatMessage: React.FC<Props> = (props) => {
               <ModalDialog
                 isOpen={isOpenPreviewImage}
                 onClose={() => setIsOpenPreviewImage(false)}
-                // Set image null after transition end
                 widthFromContent={true}
                 onAfterLeave={() => setPreviewImageUrl(null)}>
                 {previewImageUrl && (
                   <img
                     src={previewImageUrl}
                     className="mx-auto max-h-[80vh] max-w-full rounded-md"
+                    alt="Image Preview"
                   />
                 )}
               </ModalDialog>
@@ -174,11 +182,7 @@ const ChatMessage: React.FC<Props> = (props) => {
               />
               <div className="flex justify-center gap-3">
                 <Button onClick={onSubmit}>{t('button.SaveAndSubmit')}</Button>
-                <Button
-                  outlined
-                  onClick={() => {
-                    setIsEdit(false);
-                  }}>
+                <Button outlined onClick={() => setIsEdit(false)}>
                   {t('button.cancel')}
                 </Button>
               </div>
@@ -228,6 +232,7 @@ const ChatMessage: React.FC<Props> = (props) => {
       <DialogFeedback
         isOpen={isFeedbackOpen}
         thumbsUp={false}
+        // CORRECCIÓN 4: El tipo ya es `null | Feedback`, no necesita `?? undefined`
         feedback={chatContent?.feedback ?? undefined}
         onClose={() => setIsFeedbackOpen(false)}
         onSubmit={(feedback) => {

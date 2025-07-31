@@ -1,10 +1,12 @@
 import base64
+import io
 import json
 import logging
 import os
 import re
 from pathlib import Path
 
+import fitz  # PyMuPDF
 from app.config import BEDROCK_PRICING, DEFAULT_EMBEDDING_CONFIG
 from app.config import DEFAULT_GENERATION_CONFIG as DEFAULT_CLAUDE_GENERATION_CONFIG
 from app.config import DEFAULT_MISTRAL_GENERATION_CONFIG
@@ -13,7 +15,7 @@ from app.repositories.models.custom_bot import GenerationParamsModel
 from app.repositories.models.custom_bot_guardrails import BedrockGuardrailsModel
 from app.routes.schemas.conversation import type_model_name
 from app.utils import convert_dict_keys_to_camel_case, get_bedrock_runtime_client
-from typing_extensions import NotRequired, TypedDict, no_type_check
+from typing_extensions import NotRequired, TypedDict
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +140,7 @@ def _convert_to_valid_file_name(file_name: str) -> str:
     # Note: The document file name can only contain alphanumeric characters,
     # whitespace characters, hyphens, parentheses, and square brackets.
     # The name can't contain more than one consecutive whitespace character.
-    file_name = re.sub(r"[^a-zA-Z0-9\s\-\(\)\[\]]", "", file_name)
+    file_name = re.sub(r"[^a-zA-Z0-9\s\-\(\)\[\]\.]", "", file_name) # Permito el punto para la extensión
     file_name = re.sub(r"\s+", " ", file_name)
     file_name = file_name.strip()
 
@@ -170,33 +172,62 @@ def compose_args_for_converse_api(
             else:
                 return [{"text": c.body}]
         elif c.content_type == "image":
-            format = c.media_type.split("/")[1] if c.media_type else "unknown"
-            return [
-                {
-                    "image": {
-                        "format": format,
-                        "source": {"bytes": base64.b64decode(c.body)},
+            if not isinstance(c.body, str):
+                logger.error("El cuerpo de la imagen no es una cadena Base64.")
+                return []
+            
+            format = c.media_type.split("/")[1] if c.media_type else "jpeg"
+            try:
+                image_bytes = base64.b64decode(c.body)
+                return [
+                    {
+                        "image": {
+                            "format": format,
+                            "source": {"bytes": image_bytes},
+                        }
                     }
-                }
-            ]
-        elif c.content_type == "attachment":
-            return [
-                {
-                    "document": {
-                        "format": _get_converse_supported_format(
-                            Path(c.file_name).suffix[1:]  # type: ignore
-                        ),
-                        "name": Path(c.file_name).stem,  # type: ignore
-                        "source": {
-                            "bytes": (
-                                c.body.encode("utf-8")
-                                if isinstance(c.body, str)
-                                else c.body
-                            )
-                        },  # And this line
-                    }
-                }
-            ]
+                ]
+            except Exception as e:
+                logger.error(f"Error al decodificar imagen Base64: {e}")
+                return []
+                
+        elif c.content_type == "textAttachment":
+            # --- INICIO DE LA MODIFICACIÓN ---
+            # En lugar de pasar el documento directamente, extraemos el texto.
+            if not isinstance(c.body, str):
+                logger.error("El cuerpo del adjunto no es una cadena Base64.")
+                return []
+
+            try:
+                file_bytes = base64.b64decode(c.body)
+                
+                # Usar un stream de memoria para abrir el PDF sin guardarlo en disco
+                pdf_stream = io.BytesIO(file_bytes)
+                
+                extracted_text = ""
+                # Abrir el PDF con PyMuPDF
+                with fitz.open(stream=pdf_stream, filetype="pdf") as doc:
+                    for page in doc:
+                        extracted_text += page.get_text()
+
+                # Si no se extrajo texto, informarlo
+                if not extracted_text:
+                    extracted_text = "[No se pudo extraer texto del documento PDF.]"
+
+                # Creamos un bloque de texto formateado para el LLM
+                document_context = f"""
+<document name="{c.file_name}">
+{extracted_text}
+</document>
+"""
+                # Enviamos el contenido extraído como un bloque de texto normal
+                return [{"text": document_context}]
+
+            except Exception as e:
+                logger.error(f"Error al procesar el PDF adjunto (archivo: {c.file_name}): {e}")
+                # Si falla, envía un mensaje claro al LLM
+                return [{"text": f"[Error al procesar el documento adjunto: {c.file_name}]"}]
+            # --- FIN DE LA MODIFICACIÓN ---
         else:
             raise NotImplementedError(f"Unsupported content type: {c.content_type}")
 
@@ -215,7 +246,7 @@ def compose_args_for_converse_api(
 
     inference_config = {
         **DEFAULT_GENERATION_CONFIG,
-        "maxTokens": 200_000,  # Forzado siempre
+        "maxTokens": 4096,
         **(
             {
                 "temperature": generation_params.temperature,
@@ -227,7 +258,10 @@ def compose_args_for_converse_api(
         ),
     }
 
-    additional_model_request_fields = {"top_k": inference_config.pop("top_k")}
+    additional_model_request_fields = {}
+    if 'top_k' in inference_config:
+        additional_model_request_fields["top_k"] = inference_config.pop("top_k")
+
 
     args: ConverseApiRequest = {
         "inference_config": convert_dict_keys_to_camel_case(inference_config),
@@ -246,7 +280,6 @@ def compose_args_for_converse_api(
         }
 
         if stream:
-            # https://docs.aws.amazon.com/bedrock/latest/userguide/guardrails-streaming.html
             args["guardrailConfig"]["streamProcessingMode"] = "async"
 
     return args

@@ -10,6 +10,7 @@ import {
   RelatedDocument,
   Conversation,
   PutFeedbackRequest,
+  ContentBlock,
 } from '../@types/conversation';
 import useConversation from './useConversation';
 import { create } from 'zustand';
@@ -21,6 +22,25 @@ import { convertMessageMapToArray } from '../utils/MessageUtils';
 import { useTranslation } from 'react-i18next';
 import useModel from './useModel';
 import useFeedbackApi from './useFeedbackApi';
+
+// --- INICIO DE CAMBIOS: Definición de nuevos tipos ---
+
+// Tipo para representar un adjunto que viene desde la UI
+type AttachmentInput = {
+  fileName: string;
+  mediaType: string;
+  body: string; // La cadena Base64 del archivo
+};
+
+// Parámetros para la función postChat, ahora incluye 'attachments'
+type PostChatParams = {
+  content: string;
+  base64EncodedImages?: string[];
+  attachments?: AttachmentInput[]; // <-- PROPIEDAD AÑADIDA
+  bot?: BotInputType;
+};
+
+// --- FIN DE CAMBIOS ---
 
 type ChatStateType = {
   [id: string]: MessageMap;
@@ -281,49 +301,59 @@ const useChat = () => {
 
   // when updated messages
   useEffect(() => {
-  if (data && shouldUpdateMessages(data)) {
-    const tempId = NEW_MESSAGE_ID.ASSISTANT;
-    const tempMessage = chats[conversationId]?.[tempId];
-    const lastRealId = data.lastMessageId;
-    const realMessages = data.messageMap;
+    if (data && shouldUpdateMessages(data)) {
+      const tempId = NEW_MESSAGE_ID.ASSISTANT;
+      const tempMessage = chats[conversationId]?.[tempId];
+      const lastRealId = data.lastMessageId;
+      const realMessages = data.messageMap;
 
-    // Caso especial: si ya llegó la respuesta real
-    if (tempMessage && lastRealId && !realMessages[tempId]) {
-      const mergedMap = {
-        ...realMessages,
-        [lastRealId]: {
-          ...realMessages[lastRealId],
-          content: tempMessage.content.length > 0 ? tempMessage.content : realMessages[lastRealId].content,
-        },
-      };
+      if (tempMessage && lastRealId && !realMessages[tempId]) {
+        const mergedMap = {
+          ...realMessages,
+          [lastRealId]: {
+            ...realMessages[lastRealId],
+            content:
+              tempMessage.content.length > 0
+                ? tempMessage.content
+                : realMessages[lastRealId].content,
+          },
+        };
 
-      setMessages(conversationId, mergedMap);
-      setCurrentMessageId(lastRealId);
+        setMessages(conversationId, mergedMap);
+        setCurrentMessageId(lastRealId);
 
-      if ((relatedDocuments[tempId]?.length ?? 0) > 0) {
-        moveRelatedDocuments(tempId, lastRealId);
+        if ((relatedDocuments[tempId]?.length ?? 0) > 0) {
+          moveRelatedDocuments(tempId, lastRealId);
+        }
+      } else {
+        const updatedMap = {
+          ...realMessages,
+          ...(tempMessage ? { [tempId]: tempMessage } : {}),
+        };
+        setMessages(conversationId, updatedMap);
+        setCurrentMessageId(lastRealId || tempId);
       }
-    } else {
-      // No hay reemplazo todavía, mantenemos el temporal si existe
-      const updatedMap = {
-        ...realMessages,
-        ...(tempMessage ? { [tempId]: tempMessage } : {}),
-      };
-      setMessages(conversationId, updatedMap);
-      setCurrentMessageId(lastRealId || tempId);
+
+      setModelId(getPostedModel());
     }
-
-    setModelId(getPostedModel());
-  }
-}, [conversationId, data]);
-
+  }, [
+    conversationId,
+    data,
+    chats,
+    moveRelatedDocuments,
+    relatedDocuments,
+    setMessages,
+    setCurrentMessageId,
+    setModelId,
+    getPostedModel,
+    shouldUpdateMessages,
+  ]);
 
   useEffect(() => {
     setIsGeneratedTitle(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
 
-  // 画面に即時反映させるために、Stateを更新する処理
   const pushNewMessage = (
     parentMessageId: string | null,
     messageContent: MessageContent
@@ -352,16 +382,11 @@ const useChat = () => {
     );
   };
 
-  const postChat = (params: {
-    content: string;
-    base64EncodedImages?: string[];
-    bot?: BotInputType;
-  }) => {
-    const { content, bot, base64EncodedImages } = params;
-    const isNewChat = conversationId ? false : true;
+  const postChat = (params: PostChatParams) => {
+    const { content, bot, base64EncodedImages, attachments } = params;
+    const isNewChat = !conversationId;
     const newConversationId = ulid();
 
-    // エラーリトライ時に同期が間に合わないため、Stateを直接参照
     const tmpMessages = convertMessageMapToArray(
       useChatState.getState().chats[conversationId] ?? {},
       currentMessageId
@@ -369,35 +394,61 @@ const useChat = () => {
 
     const parentMessageId = isNewChat
       ? 'system'
-      : tmpMessages[tmpMessages.length - 1].id;
+      : tmpMessages[tmpMessages.length - 1]?.id ?? 'system';
 
     const modelToPost = isNewChat ? modelId : getPostedModel();
-    const imageContents: MessageContent['content'] = (
-      base64EncodedImages ?? []
-    ).map((encodedImage) => {
+
+    // Construir dinámicamente el array de contenido del mensaje
+    const messageContents: ContentBlock[] = [];
+
+    // 1. Añadir imágenes si existen
+    (base64EncodedImages ?? []).forEach((encodedImage) => {
       const result =
         /data:(?<mediaType>image\/.+);base64,(?<encodedImage>.+)/.exec(
           encodedImage
         );
-
-      return {
-        body: result!.groups!.encodedImage,
-        contentType: 'image',
-        mediaType: result!.groups!.mediaType,
-      };
+      if (result?.groups) {
+        messageContents.push({
+          contentType: 'image',
+          mediaType: result.groups.mediaType,
+          body: result.groups.encodedImage,
+        });
+      }
     });
+
+    // 2. Añadir adjuntos (PDFs, etc.) si existen
+    (attachments ?? []).forEach((att) => {
+      messageContents.push({
+        contentType: 'textAttachment',
+        fileName: att.fileName,
+        mediaType: att.mediaType,
+        body: att.body,
+      });
+    });
+
+    // 3. Añadir el texto del mensaje (solo si no está vacío)
+    if (content.trim() !== '') {
+      messageContents.push({
+        contentType: 'text',
+        body: content,
+      });
+    }
+
+    // Validar que hay algo que enviar
+    if (messageContents.length === 0) {
+      openSnackbar(
+        'No hay nada que enviar. Escribe un mensaje o adjunta un archivo.'
+      );
+      return;
+    }
+
     const messageContent: MessageContent = {
-      content: [
-        ...imageContents,
-        {
-          body: content,
-          contentType: 'text',
-        },
-      ],
+      content: messageContents,
       model: modelToPost,
       role: 'user',
       feedback: null,
     };
+
     const input: PostMessageRequest = {
       conversationId: isNewChat ? newConversationId : conversationId,
       message: {
@@ -406,10 +457,9 @@ const useChat = () => {
       },
       botId: bot?.botId,
     };
-    const createNewConversation = () => {
-      // Copy State to prevent screen flicker
-      copyMessages('', newConversationId);
 
+    const createNewConversation = () => {
+      copyMessages('', newConversationId);
       conversationApi
         .updateTitleWithGeneratedTitle(newConversationId)
         .then(() => {
@@ -423,11 +473,8 @@ const useChat = () => {
     };
 
     setPostingMessage(true);
-
-    // Update State for immediate reflection on screen
     pushNewMessage(parentMessageId, messageContent);
 
-    // post message
     const postPromise: Promise<string> = new Promise((resolve, reject) => {
       if (USE_STREAMING) {
         postStreaming({
@@ -437,12 +484,8 @@ const useChat = () => {
             editMessage(conversationId, NEW_MESSAGE_ID.ASSISTANT, c);
           },
         })
-          .then((message) => {
-            resolve(message);
-          })
-          .catch((e) => {
-            reject(e);
-          });
+          .then((message) => resolve(message))
+          .catch((e) => reject(e));
       } else {
         conversationApi
           .postMessage(input)
@@ -454,9 +497,7 @@ const useChat = () => {
             );
             resolve(res.data.message.content[0].body);
           })
-          .catch((e) => {
-            reject(e);
-          });
+          .catch((e) => reject(e));
       }
     });
 
@@ -470,16 +511,12 @@ const useChat = () => {
       })
       .catch((e) => {
         console.error(e);
-  // No eliminar el mensaje temporal, mejor mantenerlo para que se vea el fallo
-  // Puedes agregar un flag o estado visual para mostrar que hubo un error si quieres
         setCurrentMessageId(NEW_MESSAGE_ID.ASSISTANT);
-})
+      })
       .finally(() => {
         setPostingMessage(false);
       });
 
-    // get related document (for RAG)
-    const documents: RelatedDocument[] = [];
     if (input.botId) {
       conversationApi
         .getRelatedDocuments({
@@ -489,31 +526,23 @@ const useChat = () => {
         })
         .then((res) => {
           if (res.data) {
-            documents.push(...res.data);
-            setRelatedDocuments(NEW_MESSAGE_ID.ASSISTANT, documents);
+            setRelatedDocuments(NEW_MESSAGE_ID.ASSISTANT, res.data);
           }
         });
     }
   };
 
-  /**
-   * 再生成
-   * @param props content: 内容を上書きしたい場合に設定  messageId: 再生成対象のmessageId  botId: ボットの場合は設定する
-   */
   const regenerate = (props?: {
     content?: string;
     messageId?: string;
     bot?: BotInputType;
   }) => {
     let index: number = -1;
-    // messageIdが指定されている場合は、指定されたメッセージをベースにする
     if (props?.messageId) {
       index = messages.findIndex((m) => m.id === props.messageId);
     }
 
-    // 最新のメッセージがUSERの場合は、エラーとして処理する
     const isRetryError = messages[messages.length - 1].role === 'user';
-    // messageIdが指定されていない場合は、最新のメッセージを再生成する
     if (index === -1) {
       index = isRetryError ? messages.length - 1 : messages.length - 2;
     }
@@ -524,7 +553,6 @@ const useChat = () => {
       }
     });
 
-    // Stateを書き換え後の内容に更新
     if (props?.content) {
       editMessage(conversationId, parentMessage.id, props.content);
     }
@@ -544,7 +572,6 @@ const useChat = () => {
 
     setPostingMessage(true);
 
-    // 画面に即時反映するために、Stateを更新する
     if (isRetryError) {
       pushMessage(
         conversationId ?? '',
@@ -586,8 +613,6 @@ const useChat = () => {
         setPostingMessage(false);
       });
 
-    // get related document (for RAG)
-    const documents: RelatedDocument[] = [];
     if (input.botId) {
       conversationApi
         .getRelatedDocuments({
@@ -597,8 +622,7 @@ const useChat = () => {
         })
         .then((res) => {
           if (res.data) {
-            documents.push(...res.data);
-            setRelatedDocuments(NEW_MESSAGE_ID.ASSISTANT, documents);
+            setRelatedDocuments(NEW_MESSAGE_ID.ASSISTANT, res.data);
           }
         });
     }
@@ -623,7 +647,6 @@ const useChat = () => {
     postChat,
     regenerate,
     getPostedModel,
-    // エラーのリトライ
     retryPostChat: (params: { content?: string; bot?: BotInputType }) => {
       const length_ = messages.length;
       if (length_ === 0) {
@@ -631,8 +654,6 @@ const useChat = () => {
       }
       const latestMessage = messages[length_ - 1];
       if (latestMessage.sibling.length === 1) {
-        // 通常のメッセージ送信時
-        // エラー発生時の最新のメッセージはユーザ入力;
         removeMessage(conversationId, latestMessage.id);
         postChat({
           content: params.content ?? latestMessage.content[0].body,
@@ -644,7 +665,6 @@ const useChat = () => {
             : undefined,
         });
       } else {
-        // 再生成時
         regenerate({
           content: params.content ?? latestMessage.content[0].body,
           bot: params.bot,
