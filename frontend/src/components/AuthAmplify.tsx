@@ -4,7 +4,6 @@ import { Authenticator } from '@aws-amplify/ui-react';
 import { SocialProvider } from '@aws-amplify/ui';
 import { useAuthenticator } from '@aws-amplify/ui-react';
 import { PiPlayCircle, PiX } from 'react-icons/pi';
-// ===== CORRECCIÓN DEL NOMBRE DE ARCHIVO =====
 import videoSrc from '../assets/VideAprendizaje.mp4';
 
 type Props = BaseProps & {
@@ -12,12 +11,14 @@ type Props = BaseProps & {
   children: ReactNode;
 };
 
-const AuthAmplify: React.FC<Props> = ({ socialProviders, children }) => {
-  const { signOut } = useAuthenticator();
+// --- INICIO DE CAMBIOS: Creamos un componente para el Footer ---
+// Este componente tendrá su propio estado y lógica para el video.
+const CustomFooter = () => {
   const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
 
   return (
     <>
+      {/* Botón para abrir el video */}
       <button
         onClick={() => setIsVideoModalOpen(true)}
         className="fixed bottom-5 right-5 z-20 flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-gray-700 shadow-lg ring-1 ring-gray-200 transition-transform hover:scale-105"
@@ -26,6 +27,7 @@ const AuthAmplify: React.FC<Props> = ({ socialProviders, children }) => {
         <span className="font-semibold">Aprende a usar la App</span>
       </button>
 
+      {/* Modal del video */}
       {isVideoModalOpen && (
         <div
           className="fixed inset-0 z-40 flex items-center justify-center bg-black bg-opacity-70"
@@ -51,32 +53,43 @@ const AuthAmplify: React.FC<Props> = ({ socialProviders, children }) => {
           </div>
         </div>
       )}
-
-      <Authenticator
-        socialProviders={socialProviders}
-        hideSignUp
-        components={{
-          Header: () => (
-            <div className="mb-5 mt-20 flex flex-col items-center justify-center gap-4 px-4">
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-4 w-full max-w-screen-md">
-                <img
-                  src="/Gentica_Humana.png"
-                  alt="Logo Genética Humana"
-                  className="h-32 sm:h-40 md:h-48 w-auto object-contain"
-                />
-                <img
-                  src="/GeneticaLogoAid.png"
-                  alt="Logo GHeneAid"
-                  className="h-32 sm:h-40 md:h-48 w-auto object-contain"
-                />
-              </div>
-            </div>
-          ),
-        }}
-      >
-        <>{cloneElement(children as ReactElement, { signOut })}</>
-      </Authenticator>
     </>
+  );
+};
+// --- FIN DE CAMBIOS ---
+
+const AuthAmplify: React.FC<Props> = ({ socialProviders, children }) => {
+  const { signOut } = useAuthenticator();
+
+  return (
+    // Ya no necesitamos el Fragmento <> ni el estado del video aquí
+    <Authenticator
+      socialProviders={socialProviders}
+      hideSignUp
+      components={{
+        Header: () => (
+          <div className="mb-5 mt-20 flex flex-col items-center justify-center gap-4 px-4">
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 w-full max-w-screen-md">
+              <img
+                src="/Gentica_Humana.png"
+                alt="Logo Genética Humana"
+                className="h-32 sm:h-40 md:h-48 w-auto object-contain"
+              />
+              <img
+                src="/GeneticaLogoAid.png"
+                alt="Logo GHeneAid"
+                className="h-32 sm:h-40 md:h-48 w-auto object-contain"
+              />
+            </div>
+          </div>
+        ),
+        // --- INICIO DE CAMBIOS: Añadimos nuestro componente CustomFooter al formulario ---
+        Footer: CustomFooter,
+        // --- FIN DE CAMBIOS ---
+      }}
+    >
+      <>{cloneElement(children as ReactElement, { signOut })}</>
+    </Authenticator>
   );
 };
 
