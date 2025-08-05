@@ -39,6 +39,11 @@ type Props = BaseProps & {
 const MAX_IMAGE_WIDTH = 800;
 const MAX_IMAGE_HEIGHT = 800;
 
+// Estado global de imágenes y vista previa
+// Maneja:
+// - Lista de imágenes en base64
+// - Modal de vista previa
+// - Funciones para agregar, quitar y limpiar imágenes
 const useInputChatContentState = create<{
   base64EncodedImages: string[];
   pushBase64EncodedImage: (encodedImage: string) => void;
@@ -78,6 +83,7 @@ const useInputChatContentState = create<{
     set({ isOpenPreviewImage: isOpen });
   },
 }));
+//Fin
 
 const InputChatContent: React.FC<Props> = (props) => {
   const { attachedFileName, onRemoveAttachedFile, onAttachDocument } = props;
@@ -102,8 +108,8 @@ const InputChatContent: React.FC<Props> = (props) => {
   } = useInputChatContentState();
 
   useEffect(() => {
-    // Cuando el nombre del archivo adjunto se limpia desde el padre (después de enviar),
-    // también limpiamos las imágenes por si acaso.
+    // Si el usuario elimina el archivo PDF adjunto, también limpiamos imágenes cargadas
+    // para evitar que se envíen accidentalmente con el siguiente mensaje
     if (!attachedFileName) {
       clearBase64EncodedImages();
     }
@@ -155,10 +161,12 @@ const InputChatContent: React.FC<Props> = (props) => {
         const img = new Image();
         img.src = URL.createObjectURL(new Blob([reader.result]));
         img.onload = async () => {
+          // Obtenemos dimensiones originales
           const width = img.naturalWidth;
           const height = img.naturalHeight;
 
           const aspectRatio = width / height;
+          // Calculamos dimensiones escaladas para no exceder límites
           let newWidth;
           let newHeight;
           if (aspectRatio > 1) {
@@ -173,14 +181,15 @@ const InputChatContent: React.FC<Props> = (props) => {
                 : width;
           }
 
+          // Dibujamos imagen en canvas con nuevo tamaño
           const canvas = document.createElement('canvas');
           const ctx = canvas.getContext('2d');
           canvas.width = newWidth;
           canvas.height = newHeight;
           ctx?.drawImage(img, 0, 0, newWidth, newHeight);
 
+          // Obtenemos string base64 y lo almacenamos
           const resizedImageData = canvas.toDataURL('image/png');
-
           pushBase64EncodedImage(resizedImageData);
         };
       };
@@ -197,8 +206,10 @@ const InputChatContent: React.FC<Props> = (props) => {
       if (!file) return;
 
       if (file.type.startsWith('image/')) {
+        // Si es una imagen, la convertimos a base64
         encodeAndPushImage(file);
       } else {
+        // Si ya hay un archivo PDF, no dejamos subir otro
         if (hasAttachment) {
           alert(
             t(
@@ -208,6 +219,7 @@ const InputChatContent: React.FC<Props> = (props) => {
           );
           return;
         }
+        // Enviamos el archivo PDF al componente padre (ChatPage)
         onAttachDocument(file);
       }
     },
@@ -304,7 +316,7 @@ const InputChatContent: React.FC<Props> = (props) => {
         <div className="absolute bottom-0 right-0 flex items-center">
           {/* Botón de subida unificado */}
           <ButtonFileChoose
-            disabled={postingMessage || hasAttachment} // Deshabilitar si se envía o ya hay un doc
+            disabled={postingMessage || hasAttachment} // Deshabilitar si ya hay un PDF adjunto
             icon
             accept={combinedAcceptTypes}
             onChange={handleFileSelection}

@@ -74,6 +74,7 @@ export type PostMessageRequest = {
     parentMessageId: null | string;
   };
   botId?: string;
+  files?: File[];
 };
 
 export type PostMessageResponse = {

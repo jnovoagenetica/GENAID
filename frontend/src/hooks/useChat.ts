@@ -23,24 +23,15 @@ import { useTranslation } from 'react-i18next';
 import useModel from './useModel';
 import useFeedbackApi from './useFeedbackApi';
 
-// --- INICIO DE CAMBIOS: Definición de nuevos tipos ---
-
-// Tipo para representar un adjunto que viene desde la UI
-type AttachmentInput = {
-  fileName: string;
-  mediaType: string;
-  body: string; // La cadena Base64 del archivo
-};
-
-// Parámetros para la función postChat, ahora incluye 'attachments'
+// Parámetros para la función postChat, ahora usa 'pdfFiles'
+// Tipo de los parámetros que recibe la función `postChat`.
+// Se incluye `pdfFiles`, que es un array de archivos tipo File.
 type PostChatParams = {
-  content: string;
-  base64EncodedImages?: string[];
-  attachments?: AttachmentInput[]; // <-- PROPIEDAD AÑADIDA
-  bot?: BotInputType;
+  content: string; // Texto del mensaje
+  base64EncodedImages?: string[]; // Imágenes en base64 opcionales
+  pdfFiles?: File[]; // Archivos PDF opcionales
+  bot?: BotInputType; // Información del bot (si aplica)
 };
-
-// --- FIN DE CAMBIOS ---
 
 type ChatStateType = {
   [id: string]: MessageMap;
@@ -383,7 +374,7 @@ const useChat = () => {
   };
 
   const postChat = (params: PostChatParams) => {
-    const { content, bot, base64EncodedImages, attachments } = params;
+    const { content, bot, base64EncodedImages, pdfFiles } = params;
     const isNewChat = !conversationId;
     const newConversationId = ulid();
 
@@ -398,10 +389,9 @@ const useChat = () => {
 
     const modelToPost = isNewChat ? modelId : getPostedModel();
 
-    // Construir dinámicamente el array de contenido del mensaje
     const messageContents: ContentBlock[] = [];
-
-    // 1. Añadir imágenes si existen
+    
+    // Agregamos cada imagen como bloque de tipo "image"
     (base64EncodedImages ?? []).forEach((encodedImage) => {
       const result =
         /data:(?<mediaType>image\/.+);base64,(?<encodedImage>.+)/.exec(
@@ -416,17 +406,19 @@ const useChat = () => {
       }
     });
 
-    // 2. Añadir adjuntos (PDFs, etc.) si existen
-    (attachments ?? []).forEach((att) => {
+    // Agregamos cada archivo PDF como bloque de tipo "textAttachment"
+    // Claude necesita el nombre, tipo MIME, y cuerpo vacío (el archivo va por separado)
+    (pdfFiles ?? []).forEach((file) => {
       messageContents.push({
         contentType: 'textAttachment',
-        fileName: att.fileName,
-        mediaType: att.mediaType,
-        body: att.body,
+        fileName: file.name,
+        mediaType: file.type || 'application/pdf',
+        body: '', // el archivo se manda fuera de este objeto
       });
     });
 
-    // 3. Añadir el texto del mensaje (solo si no está vacío)
+    
+// Agregamos el texto del mensaje (si hay)
     if (content.trim() !== '') {
       messageContents.push({
         contentType: 'text',
@@ -434,7 +426,6 @@ const useChat = () => {
       });
     }
 
-    // Validar que hay algo que enviar
     if (messageContents.length === 0) {
       openSnackbar(
         'No hay nada que enviar. Escribe un mensaje o adjunta un archivo.'
@@ -449,6 +440,9 @@ const useChat = () => {
       feedback: null,
     };
 
+    // --- INICIO DE LA MODIFICACIÓN ---
+    // Este es el objeto que se manda a la API del backend.
+    // Si hay archivos PDF, se pasan en la propiedad `files`
     const input: PostMessageRequest = {
       conversationId: isNewChat ? newConversationId : conversationId,
       message: {
@@ -456,7 +450,9 @@ const useChat = () => {
         parentMessageId: parentMessageId,
       },
       botId: bot?.botId,
+      files: pdfFiles?.length ? pdfFiles : undefined, // <--- CAMBIO CLAVE AQUÍ
     };
+    // --- FIN DE LA MODIFICACIÓN ---
 
     const createNewConversation = () => {
       copyMessages('', newConversationId);
@@ -475,6 +471,8 @@ const useChat = () => {
     setPostingMessage(true);
     pushNewMessage(parentMessageId, messageContent);
 
+    // Si está habilitado el streaming (Claude 3.5 Sonnet), se usa WebSocket.
+    // Sino, se usa `conversationApi.postMessage(input)` con FormData si hay archivos.
     const postPromise: Promise<string> = new Promise((resolve, reject) => {
       if (USE_STREAMING) {
         postStreaming({
@@ -488,7 +486,7 @@ const useChat = () => {
           .catch((e) => reject(e));
       } else {
         conversationApi
-          .postMessage(input)
+          .postMessage(input) // ← si hay archivos, `useConversationApi` los enviará con FormData
           .then((res) => {
             editMessage(
               conversationId,
@@ -633,15 +631,12 @@ const useChat = () => {
     return length_ === 0 ? false : messages[length_ - 1].role === 'user';
   }, [messages]);
 
-  // --- INICIO DE LA CORRECCIÓN ---
-  // Se define la función `getRelatedDocuments` usando useCallback para estabilizarla.
   const getRelatedDocuments = useCallback(
     (messageId: string) => {
       return relatedDocuments[messageId] ?? [];
     },
-    [relatedDocuments] // La dependencia es `relatedDocuments`, que es estable.
+    [relatedDocuments]
   );
-  // --- FIN DE LA CORRECCIÓN ---
 
   return {
     hasError,
@@ -681,10 +676,7 @@ const useChat = () => {
         });
       }
     },
-    // --- INICIO DE LA CORRECCIÓN ---
-    // Se devuelve la versión estable de la función.
     getRelatedDocuments,
-    // --- FIN DE LA CORRECCIÓN ---
     giveFeedback: (messageId: string, feedback: PutFeedbackRequest) => {
       return feedbackApi
         .putFeedback(conversationId, messageId, feedback)

@@ -1,3 +1,5 @@
+# backend/app/bedrock.py (VERSIÓN CON LOGS PARA DEPURACIÓN)
+
 import base64
 import io
 import json
@@ -18,6 +20,9 @@ from app.utils import convert_dict_keys_to_camel_case, get_bedrock_runtime_clien
 from typing_extensions import NotRequired, TypedDict
 
 logger = logging.getLogger(__name__)
+# Aseguramos que el logger capture los mensajes de tipo INFO
+logger.setLevel(logging.INFO)
+
 
 BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "us-east-1")
 ENABLE_MISTRAL = os.environ.get("ENABLE_MISTRAL", "") == "true"
@@ -59,6 +64,12 @@ class ConverseApiToolResult(TypedDict):
     status: NotRequired[str]
 
 
+class ConverseApiAttachment(TypedDict):
+    name: str
+    data: bytes
+    type: str
+
+
 class ConverseApiRequest(TypedDict):
     inference_config: dict
     additional_model_request_fields: dict
@@ -66,6 +77,7 @@ class ConverseApiRequest(TypedDict):
     messages: list[dict]
     stream: bool
     system: list[dict]
+    attachments: NotRequired[list[ConverseApiAttachment]]
     guardrailConfig: NotRequired[GuardrailConfig]
     tool_config: NotRequired[ConverseApiToolConfig]
 
@@ -122,28 +134,16 @@ def compose_args(
 
 def _get_converse_supported_format(ext: str) -> str:
     supported_formats = {
-        "pdf": "pdf",
-        "csv": "csv",
-        "doc": "doc",
-        "docx": "docx",
-        "xls": "xls",
-        "xlsx": "xlsx",
-        "html": "html",
-        "txt": "txt",
-        "md": "md",
+        "pdf": "pdf", "csv": "csv", "doc": "doc", "docx": "docx",
+        "xls": "xls", "xlsx": "xlsx", "html": "html", "txt": "txt", "md": "md",
     }
-    # If the extension is not supported, return "txt"
     return supported_formats.get(ext, "txt")
 
 
 def _convert_to_valid_file_name(file_name: str) -> str:
-    # Note: The document file name can only contain alphanumeric characters,
-    # whitespace characters, hyphens, parentheses, and square brackets.
-    # The name can't contain more than one consecutive whitespace character.
-    file_name = re.sub(r"[^a-zA-Z0-9\s\-\(\)\[\]\.]", "", file_name) # Permito el punto para la extensión
+    file_name = re.sub(r"[^a-zA-Z0-9\s\-\(\)\[\]\.]", "", file_name)
     file_name = re.sub(r"\s+", " ", file_name)
     file_name = file_name.strip()
-
     return file_name
 
 
@@ -157,93 +157,71 @@ def compose_args_for_converse_api(
     guardrail: BedrockGuardrailsModel | None = None,
 ) -> ConverseApiRequest:
     def process_content(c: ContentModel, role: str):
+        # 🟩 Si el contenido es texto plano, simplemente lo empaquetamos como tal
         if c.content_type == "text":
             if role == "user" and guardrail and guardrail.grounding_threshold > 0:
-                return [
-                    {"guardContent": grounding_source},
-                    {
-                        "guardContent": {
-                            "text": {"text": c.body, "qualifiers": ["query"]}
-                        }
-                    },
-                ]
-            elif role == "assistant":
-                return [{"text": c.body if isinstance(c.body, str) else None}]
-            else:
-                return [{"text": c.body}]
+                return [{"guardContent": grounding_source}, {"guardContent": {"text": {"text": c.body, "qualifiers": ["query"]}}}]
+            return [{"text": c.body}] if isinstance(c.body, str) else []
+        
+        # 🟦 Si es imagen (base64), se decodifica y se empaqueta como imagen binaria
         elif c.content_type == "image":
             if not isinstance(c.body, str):
                 logger.error("El cuerpo de la imagen no es una cadena Base64.")
                 return []
-            
             format = c.media_type.split("/")[1] if c.media_type else "jpeg"
             try:
                 image_bytes = base64.b64decode(c.body)
-                return [
-                    {
-                        "image": {
-                            "format": format,
-                            "source": {"bytes": image_bytes},
-                        }
-                    }
-                ]
+                return [{"image": {"format": format, "source": {"bytes": image_bytes}}}]
             except Exception as e:
                 logger.error(f"Error al decodificar imagen Base64: {e}")
                 return []
-                
+        
+         # 🟥 Si es un archivo adjunto (PDF, Word, etc.), se decodifica y prepara como 'attachment'
         elif c.content_type == "textAttachment":
-            # --- INICIO DE LA MODIFICACIÓN ---
-            # En lugar de pasar el documento directamente, extraemos el texto.
-            if not isinstance(c.body, str):
-                logger.error("El cuerpo del adjunto no es una cadena Base64.")
-                return []
-
             try:
+                # ✅ Paso 1: Decodificamos el contenido base64 del archivo
                 file_bytes = base64.b64decode(c.body)
-                
-                # Usar un stream de memoria para abrir el PDF sin guardarlo en disco
-                pdf_stream = io.BytesIO(file_bytes)
-                
-                extracted_text = ""
-                # Abrir el PDF con PyMuPDF
-                with fitz.open(stream=pdf_stream, filetype="pdf") as doc:
-                    for page in doc:
-                        extracted_text += page.get_text()
-
-                # Si no se extrajo texto, informarlo
-                if not extracted_text:
-                    extracted_text = "[No se pudo extraer texto del documento PDF.]"
-
-                # Creamos un bloque de texto formateado para el LLM
-                document_context = f"""
-<document name="{c.file_name}">
-{extracted_text}
-</document>
-"""
-                # Enviamos el contenido extraído como un bloque de texto normal
-                return [{"text": document_context}]
-
+                 # ✅ Paso 2: Creamos un attachment válido para Claude (nombre limpio, tipo MIME, datos)
+                return [{
+                    "attachment": {
+                        "name": _convert_to_valid_file_name(c.file_name or "document.pdf"), # Limpia el nombre
+                        "data": file_bytes, # Bytes reales del archivo
+                        "type": c.media_type or "application/pdf", # MIME type correcto
+                    }
+                }]
             except Exception as e:
-                logger.error(f"Error al procesar el PDF adjunto (archivo: {c.file_name}): {e}")
-                # Si falla, envía un mensaje claro al LLM
-                return [{"text": f"[Error al procesar el documento adjunto: {c.file_name}]"}]
-            # --- FIN DE LA MODIFICACIÓN ---
+                logger.error(f"Error al decodificar el archivo adjunto '{c.file_name}': {e}")
+                return []
+        
+        # ❌ Tipo de contenido no soportado
         else:
             raise NotImplementedError(f"Unsupported content type: {c.content_type}")
 
-    arg_messages = [
-        {
-            "role": message.role,
-            "content": [
-                block
-                for c in message.content
-                for block in process_content(c, message.role)
-            ],
-        }
-        for message in messages
-        if message.role not in ["system", "instruction"]
-    ]
+    attachments = []
+    arg_messages = []
+    # 🔁 Iteramos por cada mensaje del historial para procesar sus contenidos
+    for message in messages:
+        if message.role in ["system", "instruction"]:
+            continue # Se omiten mensajes del sistema
 
+        content_blocks = []
+        for c in message.content:
+            blocks = process_content(c, message.role) # Procesamos texto, imagen o adjunto
+            for b in blocks:
+                if "attachment" in b:
+                    # ✅ Paso 3: Extraemos los adjuntos y los agregamos a la lista de 'attachments'
+                    attachments.append(b["attachment"])
+                else:
+                    content_blocks.append(b)
+        
+       # ✅ Paso 4: Agregamos el contenido procesado al cuerpo de mensajes para enviar a Claude
+        if content_blocks:
+            arg_messages.append({
+                "role": message.role,
+                "content": content_blocks,
+            })
+
+    # 🔧 Se construye la configuración de inferencia del modelo (tokens, temperatura, etc.)
     inference_config = {
         **DEFAULT_GENERATION_CONFIG,
         "maxTokens": 4096,
@@ -262,7 +240,7 @@ def compose_args_for_converse_api(
     if 'top_k' in inference_config:
         additional_model_request_fields["top_k"] = inference_config.pop("top_k")
 
-
+    # ✅ Paso 5: Se crea el diccionario final que será enviado a Claude vía la API de Bedrock
     args: ConverseApiRequest = {
         "inference_config": convert_dict_keys_to_camel_case(inference_config),
         "additional_model_request_fields": additional_model_request_fields,
@@ -272,33 +250,58 @@ def compose_args_for_converse_api(
         "system": [{"text": instruction}] if instruction else [],
     }
 
+    # ✅ Paso 6: Si hay archivos adjuntos, se agregan al payload
+    if attachments:
+        args["attachments"] = attachments
+
+    # 🛡️ Si hay configuración de guardrails (moderación), se adjunta también
     if guardrail and guardrail.guardrail_arn and guardrail.guardrail_version:
         args["guardrailConfig"] = {
             "guardrailIdentifier": guardrail.guardrail_arn,
             "guardrailVersion": guardrail.guardrail_version,
             "trace": "enabled",
         }
-
         if stream:
             args["guardrailConfig"]["streamProcessingMode"] = "async"
+
+    # --- INICIO DEL BLOQUE DE LOGS PARA DEPURACIÓN ---
+    # 📋 Log del payload final (sin mostrar los bytes de los archivos por seguridad)
+    logger.info("="*50)
+    logger.info("Argumentos finales para la API de Bedrock Converse:")
+    # Hacemos una copia para no loggear los bytes del archivo que son muy largos
+    args_for_log = args.copy()
+    if "attachments" in args_for_log and args_for_log["attachments"]:
+        args_for_log["attachments"] = [
+            {k: v for k, v in att.items() if k != 'data'} 
+            for att in args_for_log["attachments"]
+        ]
+    logger.info(args_for_log)
+    logger.info("="*50)
+    # --- FIN DEL BLOQUE DE LOGS ---
 
     return args
 
 
 def call_converse_api(args: ConverseApiRequest) -> ConverseApiResponse:
+     # 🛠️ Se obtiene el cliente de runtime de Bedrock
     client = get_bedrock_runtime_client()
-
+    # 🧱 Se construye el objeto base con los parámetros principales de la llamada
     base_args = {
-        "modelId": args["model_id"],
-        "messages": args["messages"],
-        "inferenceConfig": args["inference_config"],
-        "system": args["system"],
-        "additionalModelRequestFields": args["additional_model_request_fields"],
+        "modelId": args["model_id"], # ID del modelo (por ejemplo, Claude 3.5 Sonnet)
+        "messages": args["messages"], # Mensajes ya procesados (texto, imágenes, adjuntos)
+        "inferenceConfig": args["inference_config"], # Configuración del modelo (tokens, temperatura, etc.)
+        "system": args["system"], # Instrucciones de sistema, si las hay
+        "additionalModelRequestFields": args["additional_model_request_fields"], # Campos opcionales
     }
-
+    # 🛡️ Si hay guardrails configurados, se agregan
     if "guardrailConfig" in args:
-        base_args["guardrailConfig"] = args["guardrailConfig"]  # type: ignore
+        base_args["guardrailConfig"] = args["guardrailConfig"]
+    
+    # 📎 Si hay archivos adjuntos (PDFs u otros), se agregan a la solicitud
+    if "attachments" in args and args["attachments"]:
+        base_args["attachments"] = args["attachments"]
 
+    # 🚀 Finalmente, se realiza la llamada a la API de Bedrock con el payload completo
     return client.converse(**base_args)
 
 
@@ -318,12 +321,10 @@ def calculate_price(
         .get(model, {})
         .get("output", BEDROCK_PRICING["default"][model]["output"])
     )
-
     return input_price * input_tokens / 1000.0 + output_price * output_tokens / 1000.0
 
 
 def get_model_id(model: type_model_name) -> str:
-    # Ref: https://docs.aws.amazon.com/bedrock/latest/userguide/model-ids-arns.html
     if model == "claude-v2":
         return "anthropic.claude-v2:1"
     elif model == "claude-instant-v1":
@@ -346,47 +347,29 @@ def get_model_id(model: type_model_name) -> str:
 
 def calculate_query_embedding(question: str) -> list[float]:
     model_id = DEFAULT_EMBEDDING_CONFIG["model_id"]
-
-    # Currently only supports "cohere.embed-multilingual-v3"
     assert model_id == "cohere.embed-multilingual-v3"
-
     payload = json.dumps({"texts": [question], "input_type": "search_query"})
-    accept = "application/json"
-    content_type = "application/json"
-
     response = client.invoke_model(
-        accept=accept, contentType=content_type, body=payload, modelId=model_id
+        accept="application/json", contentType="application/json", body=payload, modelId=model_id
     )
     output = json.loads(response.get("body").read())
-    embedding = output.get("embeddings")[0]
-
-    return embedding
+    return output.get("embeddings")[0]
 
 
 def calculate_document_embeddings(documents: list[str]) -> list[list[float]]:
-    def _calculate_document_embeddings(documents: list[str]) -> list[list[float]]:
-        payload = json.dumps({"texts": documents, "input_type": "search_document"})
-        accept = "application/json"
-        content_type = "application/json"
-
+    def _calculate_document_embeddings(docs: list[str]) -> list[list[float]]:
+        payload = json.dumps({"texts": docs, "input_type": "search_document"})
         response = client.invoke_model(
-            accept=accept, contentType=content_type, body=payload, modelId=model_id
+            accept="application/json", contentType="application/json", body=payload, modelId=model_id
         )
         output = json.loads(response.get("body").read())
-        embeddings = output.get("embeddings")
-
-        return embeddings
+        return output.get("embeddings")
 
     BATCH_SIZE = 10
     model_id = DEFAULT_EMBEDDING_CONFIG["model_id"]
-
-    # Currently only supports "cohere.embed-multilingual-v3"
     assert model_id == "cohere.embed-multilingual-v3"
-
     embeddings = []
     for i in range(0, len(documents), BATCH_SIZE):
-        # Split documents into batches to avoid exceeding the payload size limit
         batch = documents[i : i + BATCH_SIZE]
-        embeddings += _calculate_document_embeddings(batch)
-
+        embeddings.extend(_calculate_document_embeddings(batch))
     return embeddings

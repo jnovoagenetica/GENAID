@@ -1,3 +1,5 @@
+// frontend/src/pages/ChatPage.tsx
+
 import React, {
   useCallback,
   useEffect,
@@ -42,7 +44,8 @@ const ChatPage: React.FC = () => {
   const { conversationId: paramConversationId, botId: paramBotId } =
     useParams();
 
-  // Estado para el archivo adjunto. Sigue siendo la única fuente de verdad.
+  // Estado para almacenar el archivo PDF adjunto.
+  // Esta variable mantiene el archivo seleccionado hasta que se envía el mensaje.
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
 
   const botId = useMemo(() => {
@@ -103,49 +106,37 @@ const ChatPage: React.FC = () => {
       : undefined;
   }, [bot?.hasKnowledge, botId]);
 
-  // La lógica de `onSend` no cambia, sigue funcionando perfectamente
+  // Función que se llama al enviar un mensaje desde el input (InputChatContent)
+  // Aquí se construye el payload que se enviará al backend.
+  // Si hay un archivo PDF adjunto, se incluye en el array `pdfFiles`.
+  // También se pasa `base64EncodedImages` si hay imágenes.
   const onSend = useCallback(
     async (content: string, base64EncodedImages?: string[]) => {
-      let attachments: { fileName: string; mediaType: string; body: string }[] =
-        [];
-
+      const pdfFiles: File[] = [];
       if (attachedFile) {
-        const fileToBase64 = (file: File): Promise<string> =>
-          new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.readAsDataURL(file);
-            reader.onload = () => {
-              const base64String = (reader.result as string).split(',')[1];
-              resolve(base64String);
-            };
-            reader.onerror = (error) => reject(error);
-          });
-
-        try {
-          const base64Body = await fileToBase64(attachedFile);
-          attachments.push({
-            fileName: attachedFile.name,
-            mediaType: attachedFile.type || 'application/octet-stream',
-            body: base64Body,
-          });
-        } catch (error) {
-          console.error('Error al codificar el archivo a Base64:', error);
-          return;
-        }
+        pdfFiles.push(attachedFile);
       }
 
+      // Enviamos el mensaje usando `postChat`, que se encarga del flujo completo:
+      // - Crear conversación si no existe
+      // - Adjuntar archivos PDF si los hay
+      // - Manejar imágenes base64
+      // - Enviar al backend usando el hook useConversationApi
       postChat({
         content,
         base64EncodedImages,
-        attachments: attachments.length > 0 ? attachments : undefined,
+        pdfFiles,
         bot: inputBotParams,
       });
 
+      // Una vez enviado el mensaje, limpiamos el estado del archivo adjunto
       setAttachedFile(null);
     },
     [inputBotParams, postChat, attachedFile]
   );
+  // --- FIN DE LA MODIFICACIÓN ---
 
+  // Esta función elimina el archivo adjunto si el usuario decide removerlo
   const handleRemoveAttachedFile = () => {
     setAttachedFile(null);
   };
@@ -226,7 +217,6 @@ const ChatPage: React.FC = () => {
 
       <hr className="w-full border-t border-gray" />
 
-      {/* Contenedor de mensajes con scroll */}
       <div className="pb-52 lg:pb-40">
         {messages.length === 0 ? (
           <div className="relative flex w-full flex-col items-center">
@@ -239,7 +229,6 @@ const ChatPage: React.FC = () => {
                       top: '50%',
                       left: '50%',
                       x: '-50%',
-                      // Posición final ajustada para responsive
                       y: isDesktop ? '-65%' : '-85%',
                     }
                   : {
@@ -252,10 +241,7 @@ const ChatPage: React.FC = () => {
               }
               transition={{ type: 'spring', stiffness: 100, damping: 20 }}
               className="z-20 flex w-full justify-center pointer-events-none">
-              
-              {/* ===== INICIO DE LA CORRECCIÓN FINAL RESPONSIVE ===== */}
               <div className="flex items-center justify-center space-x-2 sm:space-x-4">
-                {/* Nueva escala de tamaños: pequeño en móvil, grande en escritorio */}
                 <img
                   src="/Gentica_Humana.png"
                   alt="Logo Genetica Humana"
@@ -267,8 +253,6 @@ const ChatPage: React.FC = () => {
                   className="w-auto h-24 sm:h-32 md:h-48 lg:h-64 xl:h-72"
                 />
               </div>
-              {/* ===== FIN DE LA CORRECCIÓN FINAL RESPONSIVE ===== */}
-
             </motion.div>
           </div>
         ) : (
@@ -315,7 +299,6 @@ const ChatPage: React.FC = () => {
         )}
       </div>
 
-      {/* Barra inferior fija */}
       <div className="absolute bottom-0 bg-[#D4EEF3] pt-4 pb-2 z-0 flex w-full flex-col items-center justify-center">
         {bot && bot.syncStatus !== 'SUCCEEDED' && (
           <div className="mb-8 w-1/2">
@@ -327,7 +310,10 @@ const ChatPage: React.FC = () => {
           </div>
         )}
         <div className="mb-0 w-full flex justify-center">
-          {/* Props simplificadas para InputChatContent */}
+
+          {/* // Aquí pasamos `setAttachedFile` como prop a InputChatContent.
+          // Cuando el usuario selecciona un archivo PDF, `InputChatContent` lo detecta
+          // y lo envía mediante esta función, que actualiza el estado `attachedFile`. */}
           <InputChatContent
             dndMode={dndMode}
             disabledSend={postingMessage}
@@ -339,10 +325,8 @@ const ChatPage: React.FC = () => {
             }
             onSend={onSend}
             onRegenerate={onRegenerate}
-            // Props para manejar el adjunto
             attachedFileName={attachedFile ? attachedFile.name : null}
             onRemoveAttachedFile={handleRemoveAttachedFile}
-            // Pasamos la función para que el hijo pueda actualizar el estado del documento
             onAttachDocument={setAttachedFile}
           />
         </div>

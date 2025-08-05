@@ -1,6 +1,6 @@
 // import { Auth } from "aws-amplify";
 import { Auth } from 'aws-amplify';
-import axios, { AxiosError, AxiosResponse } from 'axios';
+import axios, { AxiosError, AxiosResponse, AxiosRequestConfig } from 'axios';
 import useSWR, { SWRConfiguration } from 'swr';
 // import useAlertSnackbar from "./useAlertSnackbar";
 
@@ -106,21 +106,17 @@ const useHttp = () => {
       url: string,
       data: DATA,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      errorProcess?: (err: any) => void
+      config?: AxiosRequestConfig<DATA>
     ) => {
       return new Promise<AxiosResponse<RES>>((resolve, reject) => {
         api
-          .post<RES, AxiosResponse<RES>, DATA>(url, data)
+          .post<RES, AxiosResponse<RES>, DATA>(url, data, config)
           .then((data) => {
             resolve(data);
           })
           .catch((err) => {
-            if (errorProcess) {
-              errorProcess(err);
-            } else {
-              // alert.openError(getErrorMessage(err));
-            }
             reject(err);
+              reject(err);
           });
       });
     },
