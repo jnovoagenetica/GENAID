@@ -10,6 +10,7 @@ import {
 import useHttp from './useHttp';
 
 const useConversationApi = () => {
+  
   const http = useHttp();
   const { mutate } = useSWRConfig();
 
@@ -35,68 +36,105 @@ const useConversationApi = () => {
       );
     },
 
-    // postMessage se encarga de enviar un mensaje al backend,
-    // y si el mensaje incluye archivos (como PDF), los envía usando FormData.
-
-    postMessage: (input: PostMessageRequest) => {
-      // Si el input incluye archivos PDF (o cualquier otro tipo)
+    // postMessage se encarga de enviar un mensaje al backend.
+    // Redirige al endpoint correcto según si hay archivos o no.
+    postMessage: async (input: PostMessageRequest) => {
+      alert("✅ Ejecutando useConversationApi.postMessage");
+      console.log('[🔥] postMessage() ejecutándose'); 
+      console.log('[useConversationApi] postMessage ejecutado');
+      // Si el input incluye archivos PDF (o cualquier otro tipo), usa FormData y el endpoint /conversation
       if (input.files && input.files.length > 0) {
-        console.log('Archivos a enviar:', input.files);
         const formData = new FormData();
 
-        // Se añaden los campos individualmente, como espera el backend Form(...)
-        // Estos campos son obligatorios y deben ir con nombres específicos,
-        // ya que el backend usa Form(...) para recibirlos.
-
-        // ID de la conversación
         formData.append('conversation_id', input.conversationId || '');
-
-        // Contenido del mensaje, convertido a string JSON
         formData.append('message', JSON.stringify(input.message));
-
-        // ID del bot asociado
         formData.append('bot_id', input.botId || '');
-
-        // Adjuntamos todos los archivos (uno o más), con el campo `file`
         input.files.forEach((file) => formData.append('files', file));
 
         console.log(
-          '[useConversationApi] Enviando archivo(s) al backend:',
-          input.files.map((f) => ({
-            name: f.name,
-            size: f.size,
-            type: f.type,
-          }))
+          '[useConversationApi → postMessage] Enviando mensaje con archivos (FormData) a /conversation'
         );
-
-        // ✅ Versión mejorada con logs de depuración
         console.log(
-          '[DEBUG FRONT] ➤ Enviando mensaje con archivos (FormData)'
+          '[useConversationApi → postMessage] Conversación ID:',
+          input.conversationId
         );
-        console.log('[DEBUG FRONT] Conversación ID:', input.conversationId);
-        console.log('[DEBUG FRONT] Bot ID:', input.botId);
-        console.log('[DEBUG FRONT] Contenido del mensaje:', input.message);
-        console.log('[DEBUG FRONT] Archivos a enviar:', input.files);
+        console.log('[useConversationApi → postMessage] Bot ID:', input.botId);
 
-        // Ver todo lo que hay en el FormData
+        // Ver todo lo que hay en el FormData para depuración
         for (let [key, value] of formData.entries()) {
           if (value instanceof File) {
-            console.log(`[DEBUG FRONT] FormData → key="${key}", archivo=`, {
-              name: value.name,
-              size: value.size,
-              type: value.type,
-            });
+            console.log(
+              `[useConversationApi → postMessage] FormData → key="${key}", archivo=`,
+              {
+                name: value.name,
+                size: value.size,
+                type: value.type,
+              }
+            );
           } else {
-            console.log(`[DEBUG FRONT] FormData → key="${key}", valor="${value}"`);
+            console.log(
+              `[useConversationApi → postMessage] FormData → key="${key}", valor="${value}"`
+            );
           }
         }
 
-        // Se envía como POST con FormData al endpoint `/conversation`
-        return http.post<PostMessageResponse>('conversation', formData);
+        // Se envía como POST con FormData, con manejo de errores
+        try {
+          return await http.post<PostMessageResponse>(
+            'conversation',
+            formData
+          );
+        } catch (err) {
+          console.error(
+            '[useConversationApi → postMessage] ❌ Error al enviar FormData a /conversation:',
+            err
+          );
+          throw err; // Re-lanzamos el error para que sea manejado por el caller (useChat)
+        }
       }
 
-      // Si NO hay archivos, se envía como JSON tradicional
-      return http.post<PostMessageResponse>('conversation', input);
+      // --- INICIO DEL BLOQUE CORREGIDO Y CON LOGS AÑADIDOS ---
+      // Si NO hay archivos, se envía como JSON tradicional al endpoint /conversation/json
+      const payload = {
+        ...input,
+        files: input.files ?? [],
+      };
+
+      // LOG para trazabilidad completa
+      console.log(
+        '[useConversationApi → postMessage] Enviando mensaje sin archivos (JSON) a /conversation/json'
+      );
+      // Logs específicos añadidos
+      console.log(
+        '[useConversationApi → postMessage] Payload JSON → texto:',
+        input.message
+      );
+      console.log(
+        '[useConversationApi → postMessage] Payload JSON → imágenes base64:',
+        {
+          total:
+            input.message.content.filter((c) => c.contentType === 'image')
+              .length || 0,
+          muestras: input.message.content
+            .filter((c) => c.contentType === 'image')
+            .map(
+              (img, i) => `Imagen ${i + 1}: ${img.body.slice(0, 60)}...`
+            ),
+        }
+      );
+
+      try {
+        return await http.post<PostMessageResponse>(
+          'conversation/json',
+          payload
+        );
+      } catch (err) {
+        console.error(
+          '[useConversationApi → postMessage] ❌ Error al enviar mensaje JSON a /conversation/json:',
+          err
+        );
+        throw err; // Re-lanzamos el error
+      }
     },
     // --- FIN DEL BLOQUE CORREGIDO ---
 

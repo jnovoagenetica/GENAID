@@ -90,7 +90,7 @@ const InputChatContent: React.FC<Props> = (props) => {
 
   // --- AÑADIDO: Se reintroduce el estado del código antiguo para mostrar los botones ---
   const [showHelpfulInfo] = useState(true);
-  
+
   const { t } = useTranslation();
   const { postingMessage, hasError, messages } = useChat();
   const { disabledImageUpload, model, acceptMediaType } = useModel();
@@ -133,6 +133,22 @@ const InputChatContent: React.FC<Props> = (props) => {
   const inputRef = useRef<HTMLDivElement>(null);
 
   const sendContent = useCallback(() => {
+    // <--- AÑADIDO: Log en sendContent
+    console.log('[InputChatContent] Enviando mensaje:', {
+      content,
+      base64EncodedImages,
+    });
+
+    // 🔁 CAMBIOS AÑADIDOS
+    // [3] Antes de ejecutar props.onSend()
+    console.log('[sendContent] Enviando mensaje con contenido e imágenes:', {
+      content,
+      imageCount: base64EncodedImages.length,
+      images: base64EncodedImages.map(
+        (img, i) => `Imagen ${i + 1}: ${img.slice(0, 60)}...`
+      ),
+    });
+
     props.onSend(
       content,
       !disabledImageUpload && base64EncodedImages.length > 0
@@ -190,6 +206,14 @@ const InputChatContent: React.FC<Props> = (props) => {
 
           // Obtenemos string base64 y lo almacenamos
           const resizedImageData = canvas.toDataURL('image/png');
+
+          // 🔁 CAMBIOS AÑADIDOS
+          // [2] Al convertir la imagen a base64 y redimensionarla
+          console.log('[encodeAndPushImage] Imagen convertida a base64:', {
+            fileName: imageFile.name,
+            base64Sample: resizedImageData.slice(0, 80) + '...', // recortado para no saturar
+          });
+
           pushBase64EncodedImage(resizedImageData);
         };
       };
@@ -205,7 +229,22 @@ const InputChatContent: React.FC<Props> = (props) => {
       const file = fileList[0];
       if (!file) return;
 
+      // <--- AÑADIDO: Log mejorado en handleFileSelection
+      console.log('[InputChatContent] Archivo seleccionado:', {
+        nombre: file.name,
+        tipo: file.type,
+        tamañoKB: (file.size / 1024).toFixed(2),
+      });
+
       if (file.type.startsWith('image/')) {
+        // 🔁 CAMBIOS AÑADIDOS
+        // [1] Cuando el usuario selecciona una imagen
+        console.log('[handleFileSelection] Imagen seleccionada:', {
+          name: file.name,
+          type: file.type,
+          sizeKB: (file.size / 1024).toFixed(2),
+        });
+
         // Si es una imagen, la convertimos a base64
         encodeAndPushImage(file);
       } else {
@@ -220,7 +259,12 @@ const InputChatContent: React.FC<Props> = (props) => {
           return;
         }
         // Enviamos el archivo PDF al componente padre (ChatPage)
+        // <--- AÑADIDO: Logs en onAttachDocument
         onAttachDocument(file);
+        console.log(
+          '[InputChatContent] Documento enviado al padre:',
+          file.name
+        );
       }
     },
     [encodeAndPushImage, onAttachDocument, hasAttachment, t]

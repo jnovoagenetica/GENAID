@@ -375,6 +375,15 @@ const useChat = () => {
 
   const postChat = (params: PostChatParams) => {
     const { content, bot, base64EncodedImages, pdfFiles } = params;
+
+    // 🔁 CAMBIOS AÑADIDOS CON LOGS VISIBLES
+    // [1] Entrada al método
+    console.log('[useChat/postChat] Iniciando envío de mensaje', {
+      content,
+      imageCount: base64EncodedImages?.length || 0,
+      pdfCount: pdfFiles?.length || 0,
+    });
+
     const isNewChat = !conversationId;
     const newConversationId = ulid();
 
@@ -390,7 +399,7 @@ const useChat = () => {
     const modelToPost = isNewChat ? modelId : getPostedModel();
 
     const messageContents: ContentBlock[] = [];
-    
+
     // Agregamos cada imagen como bloque de tipo "image"
     (base64EncodedImages ?? []).forEach((encodedImage) => {
       const result =
@@ -398,27 +407,29 @@ const useChat = () => {
           encodedImage
         );
       if (result?.groups) {
+        console.log('Imagen 1');
         messageContents.push({
           contentType: 'image',
           mediaType: result.groups.mediaType,
           body: result.groups.encodedImage,
         });
+        console.log('Imagen 2');
       }
     });
 
     // Agregamos cada archivo PDF como bloque de tipo "textAttachment"
-    // Claude necesita el nombre, tipo MIME, y cuerpo vacío (el archivo va por separado)
     (pdfFiles ?? []).forEach((file) => {
+      console.log('PDF1');
       messageContents.push({
         contentType: 'textAttachment',
         fileName: file.name,
         mediaType: file.type || 'application/pdf',
         body: '', // el archivo se manda fuera de este objeto
       });
+      console.log('PDF2');
     });
 
-    
-// Agregamos el texto del mensaje (si hay)
+    // Agregamos el texto del mensaje (si hay)
     if (content.trim() !== '') {
       messageContents.push({
         contentType: 'text',
@@ -440,9 +451,6 @@ const useChat = () => {
       feedback: null,
     };
 
-    // --- INICIO DE LA MODIFICACIÓN ---
-    // Este es el objeto que se manda a la API del backend.
-    // Si hay archivos PDF, se pasan en la propiedad `files`
     const input: PostMessageRequest = {
       conversationId: isNewChat ? newConversationId : conversationId,
       message: {
@@ -450,9 +458,54 @@ const useChat = () => {
         parentMessageId: parentMessageId,
       },
       botId: bot?.botId,
-      files: pdfFiles?.length ? pdfFiles : undefined, // <--- CAMBIO CLAVE AQUÍ
+      files: pdfFiles?.length ? pdfFiles : undefined,
     };
-    // --- FIN DE LA MODIFICACIÓN ---
+
+    // 🔁 CAMBIOS AÑADIDOS CON LOGS VISIBLES
+    // [2] Construcción del payload para enviar
+    console.log('[useChat/postChat] Payload que se enviará:', {
+      conversationId: input.conversationId,
+      message: content,
+      files: pdfFiles?.map((f) => f.name),
+      images: base64EncodedImages?.map(
+        (img, i) => `Imagen ${i + 1}: ${img.slice(0, 60)}...`
+      ),
+      useStreaming: USE_STREAMING,
+    });
+
+    // <--- LOG AÑADIDO: Bloque de logs antes de enviar al backend
+    // 4. Log para FormData vs JSON
+    if (pdfFiles?.length) {
+      console.log('[useChat] Se usará FormData para enviar los archivos PDF');
+    } else {
+      console.log('[useChat] Se usará JSON estándar');
+    }
+
+    // 1. Log del payload antes de enviar
+    console.log('[useChat] Enviando mensaje al backend');
+    console.log('[useChat] Texto:', content);
+    console.log(
+      '[useChat] Archivos PDF adjuntos:',
+      pdfFiles?.map((f) => f.name)
+    );
+    console.log(
+      '[useChat] Imágenes base64 adjuntas:',
+      base64EncodedImages?.length || 0
+    );
+    console.log('[useChat] Streaming habilitado:', USE_STREAMING);
+    console.log('[useChat] Payload resumido:', {
+      ...input,
+      files: pdfFiles?.map((f) => f.name), // Mostrar solo nombres de archivo en el log
+      message: {
+        ...input.message,
+        // Evitar loggear todo el contenido base64
+        content: input.message.content.map((c) =>
+          c.contentType === 'image'
+            ? { ...c, body: `(imagen_base64_truncada)` }
+            : c
+        ),
+      },
+    });
 
     const createNewConversation = () => {
       copyMessages('', newConversationId);
@@ -471,10 +524,16 @@ const useChat = () => {
     setPostingMessage(true);
     pushNewMessage(parentMessageId, messageContent);
 
-    // Si está habilitado el streaming (Claude 3.5 Sonnet), se usa WebSocket.
-    // Sino, se usa `conversationApi.postMessage(input)` con FormData si hay archivos.
+    // 🔁 CAMBIOS AÑADIDOS CON LOGS VISIBLES
+    // [3] Antes de llamar a la API
+    console.log('[useChat/postChat] Enviando a postMessage...');
+
+    // Si está habilitado el streaming, se usa WebSocket.
+    // Sino, se usa `conversationApi.postMessage` con FormData si hay archivos.
     const postPromise: Promise<string> = new Promise((resolve, reject) => {
+      // <--- LOG AÑADIDO: Indica el modo de envío
       if (USE_STREAMING) {
+        console.log('[useChat] Usando WebSocket para streaming de respuesta');
         postStreaming({
           input,
           hasKnowledge: bot?.hasKnowledge,
@@ -482,12 +541,29 @@ const useChat = () => {
             editMessage(conversationId, NEW_MESSAGE_ID.ASSISTANT, c);
           },
         })
-          .then((message) => resolve(message))
+          .then((message) => {
+            // <--- LOG AÑADIDO: Confirma que el streaming terminó
+            console.log('[useChat] Respuesta de streaming completada.');
+            resolve(message);
+          })
           .catch((e) => reject(e));
       } else {
+        console.log('[useChat] Envío estándar sin streaming');
+        console.log('[useChat] Llamando a postMessage de useConversationApi');
         conversationApi
-          .postMessage(input) // ← si hay archivos, `useConversationApi` los enviará con FormData
+          .postMessage(input)
           .then((res) => {
+            // 🔁 CAMBIOS AÑADIDOS CON LOGS VISIBLES
+            // [4] Si no hay streaming, log de la respuesta
+            if (!USE_STREAMING) {
+              console.log(
+                '[useChat/postChat] Respuesta del backend (sin streaming):',
+                res.data
+              );
+            }
+            // <--- LOG AÑADIDO: Confirma la respuesta y loguea el ID del mensaje
+            console.log('[useChat] Respuesta del backend recibida');
+            console.log('[useChat] Mensaje ID:', (res.data.message as any).id);
             editMessage(
               conversationId,
               NEW_MESSAGE_ID.ASSISTANT,
@@ -508,7 +584,8 @@ const useChat = () => {
         }
       })
       .catch((e) => {
-        console.error(e);
+        // <--- LOG AÑADIDO: Captura y loguea errores
+        console.error('[useChat] Error al enviar el mensaje:', e);
         setCurrentMessageId(NEW_MESSAGE_ID.ASSISTANT);
       })
       .finally(() => {

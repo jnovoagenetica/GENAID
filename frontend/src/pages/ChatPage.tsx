@@ -106,6 +106,16 @@ const ChatPage: React.FC = () => {
       : undefined;
   }, [bot?.hasKnowledge, botId]);
 
+  // <--- AÑADIDO: Log mejorado para confirmar recepción en el componente padre
+  const onAttachDocument = (file: File) => {
+    console.log('[ChatPage] Recibido archivo desde InputChatContent:', {
+      nombre: file.name,
+      tipo: file.type,
+      tamañoKB: (file.size / 1024).toFixed(2),
+    });
+    setAttachedFile(file);
+  };
+
   // Función que se llama al enviar un mensaje desde el input (InputChatContent)
   // Aquí se construye el payload que se enviará al backend.
   // Si hay un archivo PDF adjunto, se incluye en el array `pdfFiles`.
@@ -116,6 +126,20 @@ const ChatPage: React.FC = () => {
       if (attachedFile) {
         pdfFiles.push(attachedFile);
       }
+
+      // <--- AÑADIDO: Log justo antes de enviar al backend
+      console.log('[ChatPage] Enviando mensaje...');
+      console.log('[ChatPage] Contenido:', content);
+      console.log(
+        '[ChatPage] PDF adjunto:',
+        attachedFile?.name,
+        attachedFile?.type,
+        attachedFile?.size
+      );
+      console.log(
+        '[ChatPage] Imágenes base64:',
+        base64EncodedImages?.length ?? 0
+      );
 
       // Enviamos el mensaje usando `postChat`, que se encarga del flujo completo:
       // - Crear conversación si no existe
@@ -310,10 +334,6 @@ const ChatPage: React.FC = () => {
           </div>
         )}
         <div className="mb-0 w-full flex justify-center">
-
-          {/* // Aquí pasamos `setAttachedFile` como prop a InputChatContent.
-          // Cuando el usuario selecciona un archivo PDF, `InputChatContent` lo detecta
-          // y lo envía mediante esta función, que actualiza el estado `attachedFile`. */}
           <InputChatContent
             dndMode={dndMode}
             disabledSend={postingMessage}
@@ -327,7 +347,7 @@ const ChatPage: React.FC = () => {
             onRegenerate={onRegenerate}
             attachedFileName={attachedFile ? attachedFile.name : null}
             onRemoveAttachedFile={handleRemoveAttachedFile}
-            onAttachDocument={setAttachedFile}
+            onAttachDocument={onAttachDocument}
           />
         </div>
         <div className="w-full px-4 flex flex-wrap items-center justify-center gap-2 sm:gap-4 text-xs sm:text-sm text-gray-700">
