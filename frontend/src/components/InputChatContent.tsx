@@ -9,7 +9,7 @@ import ButtonSend from './ButtonSend';
 import Textarea from './Textarea';
 import useChat from '../hooks/useChat';
 // Usaremos PiPaperclip como el ícono unificado
-import { PiX, PiPaperclip, PiArrowsCounterClockwise } from 'react-icons/pi'; // <-- Asegúrate de que PiArrowsCounterClockwise esté aquí si lo usas
+import { PiX, PiPaperclip } from 'react-icons/pi'; // <-- Asegúrate de que PiArrowsCounterClockwise esté aquí si lo usas
 import { useTranslation } from 'react-i18next';
 import ButtonIcon from './ButtonIcon';
 import useModel from '../hooks/useModel';
@@ -93,7 +93,7 @@ const InputChatContent: React.FC<Props> = (props) => {
 
   const { t } = useTranslation();
   const { postingMessage, hasError, messages } = useChat();
-  const { disabledImageUpload, model, acceptMediaType } = useModel();
+  const { disabledImageUpload, acceptMediaType } = useModel();
 
   const [content, setContent] = useState('');
   const {

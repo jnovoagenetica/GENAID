@@ -5,7 +5,6 @@ import React, {
   useEffect,
   useMemo,
   useState,
-  useRef,
 } from 'react';
 import InputChatContent from '../components/InputChatContent';
 import useChat from '../hooks/useChat';
