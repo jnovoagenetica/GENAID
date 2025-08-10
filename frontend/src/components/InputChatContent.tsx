@@ -34,6 +34,7 @@ type Props = BaseProps & {
   onRemoveAttachedFile: () => void;
   // Nueva prop para pasar el archivo de documento al padre (ChatPage)
   onAttachDocument: (file: File) => void;
+  multiple?: boolean;
 };
 
 const MAX_IMAGE_WIDTH = 800;
@@ -221,57 +222,53 @@ const InputChatContent: React.FC<Props> = (props) => {
     [pushBase64EncodedImage]
   );
 
-  // Nuevo manejador de archivos unificado
+  // 2) Aceptar y enviar varios PDFs al padre
   const handleFileSelection = useCallback(
     (fileList: FileList) => {
       if (!fileList || fileList.length === 0) return;
 
-      const file = fileList[0];
-      if (!file) return;
+      const all = Array.from(fileList);
 
-      // <--- AÑADIDO: Log mejorado en handleFileSelection
-      console.log('[InputChatContent] Archivo seleccionado:', {
-        nombre: file.name,
-        tipo: file.type,
-        tamañoKB: (file.size / 1024).toFixed(2),
-      });
-
-      if (file.type.startsWith('image/')) {
-        // 🔁 CAMBIOS AÑADIDOS
-        // [1] Cuando el usuario selecciona una imagen
-        console.log('[handleFileSelection] Imagen seleccionada:', {
-          name: file.name,
-          type: file.type,
-          sizeKB: (file.size / 1024).toFixed(2),
+      // 1) Imágenes → a base64 (todas)
+      const images = all.filter((f) => f.type.startsWith('image/'));
+      if (images.length) {
+        images.forEach((img) => {
+          console.log('[handleFileSelection] Imagen seleccionada:', {
+            name: img.name,
+            type: img.type,
+            sizeKB: (img.size / 1024).toFixed(2),
+          });
+          encodeAndPushImage(img);
         });
+      }
 
-        // Si es una imagen, la convertimos a base64
-        encodeAndPushImage(file);
-      } else {
-        // Si ya hay un archivo PDF, no dejamos subir otro
-        if (hasAttachment) {
-          alert(
-            t(
-              'error.onlyOneDocument',
-              'Solo puedes adjuntar un documento a la vez.'
-            )
-          );
-          return;
-        }
-        // Enviamos el archivo PDF al componente padre (ChatPage)
-        // <--- AÑADIDO: Logs en onAttachDocument
-        onAttachDocument(file);
-        console.log(
-          '[InputChatContent] Documento enviado al padre:',
-          file.name
+      // 2) Documentos (solo PDF por ahora) → enviar al padre como File (sin base64)
+      const pdfs = all.filter((f) => f.type === 'application/pdf');
+      if (pdfs.length) {
+        pdfs.forEach((pdf) => {
+          console.log('[InputChatContent] Documento enviado al padre:', pdf.name);
+          onAttachDocument(pdf); // compat: una llamada por cada PDF
+        });
+      }
+
+      // 3) Si hay otros tipos no soportados, avisa
+      const unsupported = all.filter(
+        (f) => !f.type.startsWith('image/') && f.type !== 'application/pdf'
+      );
+      if (unsupported.length) {
+        alert(
+          t(
+            'error.unsupportedFile',
+            'Por ahora solo se admiten imágenes y PDFs.'
+          )
         );
       }
     },
-    [encodeAndPushImage, onAttachDocument, hasAttachment, t]
+    [encodeAndPushImage, onAttachDocument, t]
   );
 
-  // Tipos de archivo aceptados combinados
-  const documentAcceptTypes = '.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,.html';
+  // 3) (Opcional, recomendado) Restringir documentos a PDF
+  const documentAcceptTypes = '.pdf';
   const combinedAcceptTypes = useMemo(() => {
     return [...acceptMediaType, documentAcceptTypes].join(',');
   }, [acceptMediaType]);
@@ -358,9 +355,9 @@ const InputChatContent: React.FC<Props> = (props) => {
         </div>
 
         <div className="absolute bottom-0 right-0 flex items-center">
-          {/* Botón de subida unificado */}
+          {/* 1) Permitir seleccionar varios archivos en el picker */}
           <ButtonFileChoose
-            disabled={postingMessage || hasAttachment} // Deshabilitar si ya hay un PDF adjunto
+            disabled={postingMessage || false} // ya no bloquees por hasAttachment
             icon
             accept={combinedAcceptTypes}
             onChange={handleFileSelection}

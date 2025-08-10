@@ -6,17 +6,16 @@ from typing import Literal
 import base64
 import io
 import fitz  # PyMuPDF
-import re  # Importado para la nueva función
+import re
+from math import ceil # Necesario para los nuevos logs
 
 from app.agents.agent import AgentRunner
 from app.agents.tools.knowledge import create_knowledge_tool
 from app.agents.utils import get_tool_by_name
-# Asumimos que `chat_with_claude` y `chat` existen en bedrock.py, como solicitaste
 from app.bedrock import (
     calculate_price,
     call_converse_api,
     compose_args_for_converse_api,
-    # chat_with_claude, # Descomenta esta línea si la función existe
 )
 from app.prompt import build_rag_prompt
 from app.repositories.conversation import (
@@ -38,7 +37,7 @@ from app.repositories.models.custom_bot import (
 )
 from app.routes.schemas.conversation import (
     AgentMessage,
-    ChatInputWithFiles, # ✅ Paso 1: Cambiado de ChatInput
+    ChatInputWithFiles,
     ChatOutput,
     Chunk,
     Content,
@@ -71,6 +70,7 @@ def prepare_conversation(
     user_id: str,
     chat_input: ChatInputWithFiles,
 ) -> tuple[str, ConversationModel, BotModel | None]:
+    # ... (El contenido de esta función se mantiene igual)
     current_time = get_current_time()
     bot = None
 
@@ -223,7 +223,7 @@ def prepare_conversation(
 def trace_to_root(
     node_id: str | None, message_map: dict[str, MessageModel]
 ) -> list[MessageModel]:
-    """Trace message map from leaf node to root node."""
+    # ... (El contenido de esta función se mantiene igual)
     result = []
     if not node_id or node_id == "system":
         node_id = "instruction" if "instruction" in message_map else "system"
@@ -244,7 +244,7 @@ def insert_knowledge(
     search_results: list[SearchResult],
     display_citation: bool = True,
 ) -> ConversationModel:
-    """Insert knowledge to the conversation."""
+    # ... (El contenido de esta función se mantiene igual)
     if len(search_results) == 0:
         return conversation
 
@@ -259,31 +259,59 @@ def insert_knowledge(
     return conversation_with_context
 
 
-# ✅ Paso 1: Función principal que orquesta el envío del mensaje y los archivos
 async def chat(user_id: str, chat_input: ChatInputWithFiles) -> ChatOutput:
-    # --- INICIO DEL BLOQUE DE PROCESAMIENTO DE ARCHIVOS ---
-    # Procesar archivos subidos y prepararlos como adjuntos para Claude.
-    attachments = []
-    if chat_input.files:
-        for file in chat_input.files:
-            content = await file.read()  # Usa await si la función es async
-            file_name = _convert_to_valid_file_name(file.filename)
+    # --- INICIO DE LOS CAMBIOS ---
+    # 1. Añadir bloque de logs
+    logger.info("[CHAT] ----- INICIO chat() -----")
+    logger.info("[CHAT] conversation_id=%s  bot_id=%s  model=%s",
+                chat_input.conversation_id, chat_input.bot_id, chat_input.message.model)
 
-            attachments.append({
-                "name": file_name,
-                "data": content,
-            })
+    total_blocks = len(chat_input.message.content)
+    logger.info("[CHAT] message.content: %d bloque(s)", total_blocks)
 
-            print(f"[CHAT] Attachment preparado: {file_name} ({len(content)} bytes)")
-    # --- FIN DEL BLOQUE DE PROCESAMIENTO ---
+    num_txt = 0
+    num_img = 0
+    num_attach = 0
 
+    for i, c in enumerate(chat_input.message.content):
+        ct = getattr(c, "content_type", None)
+        mt = getattr(c, "media_type", None)
+        fn = getattr(c, "file_name", None)
+        body_len = len(c.body) if isinstance(c.body, str) else 0
+
+        if ct == "text":
+            num_txt += 1
+            logger.info("[CHAT][%d] TEXT len=%d", i, body_len)
+        elif ct == "image":
+            num_img += 1
+            logger.info("[CHAT][%d] IMAGE media=%s base64_len=%d", i, mt, body_len)
+        elif ct == "textAttachment":
+            num_attach += 1
+            approx_kb = ceil((body_len * 3) / 4 / 1024)
+            logger.info(
+                "[CHAT][%d] ATTACH name=%s media=%s base64_len=%d (~%d KB)",
+                i, fn, mt, body_len, approx_kb
+            )
+        else:
+            logger.info("[CHAT][%d] tipo desconocido: %s", i, ct)
+
+    logger.info("[CHAT] Totales -> text=%d image=%d attachments=%d", num_txt, num_img, num_attach)
+
+    # 2. Eliminar bloque de procesamiento de chat_input.files (ahora es obsoleto)
+    # El siguiente bloque ha sido eliminado:
+    # attachments = []
+    # if chat_input.files: ...
+
+    # 3. Corregir llamada a prepare_conversation (sin await)
     user_msg_id, conversation, bot = prepare_conversation(user_id, chat_input)
+    # --- FIN DE LOS CAMBIOS ---
 
     used_chunks = None
     price = 0.0
     thinking_log = None
 
     if bot and bot.is_agent_enabled():
+        # ... (La lógica del agente se mantiene igual)
         logger.info("Bot has agent tools. Using agent for response.")
         tools = [get_tool_by_name(t.name) for t in bot.agent.tools]
 
@@ -319,31 +347,26 @@ async def chat(user_id: str, chat_input: ChatInputWithFiles) -> ChatOutput:
 
         messages = trace_to_root(node_id=user_msg_id, message_map=message_map)
         
-        # --- INICIO BLOQUE MODIFICADO ---
-        generation_config = bot.generation_params if bot else None
+        # 4. Añadir log antes de llamar a Bedrock
+        logger.info("[CHAT] Preparando args para Bedrock. (extraerá attachments desde message.content)")
         
-        response = chat(
-            messages,
-            generation_config=generation_config,
-            attachments=attachments,
+        # 5. Simplificar la llamada a compose_args_for_converse_api
+        generation_config = bot.generation_params if bot else None
+
+        args = compose_args_for_converse_api(
+            messages=messages,
+            model=chat_input.message.model,
+            instruction=(
+                message_map["instruction"].content[0].body
+                if "instruction" in message_map and isinstance(message_map["instruction"].content[0].body, str)
+                else None
+            ),
+            generation_params=generation_config,
+            grounding_source=to_guardrails_grounding_source(search_results),
+            guardrail=(bot.bedrock_guardrails if bot else None),
         )
         
-        # # Manteniendo la lógica original ya que `bedrock.chat_with_claude` no está importada.
-        # # El código actual ya pasa los adjuntos correctamente dentro de `messages`.
-        # args = compose_args_for_converse_api(
-        #     messages=messages,
-        #     model=chat_input.message.model,
-        #     instruction=(
-        #         message_map["instruction"].content[0].body
-        #         if "instruction" in message_map and isinstance(message_map["instruction"].content[0].body, str)
-        #         else None
-        #     ),
-        #     generation_params=(bot.generation_params if bot else None),
-        #     grounding_source=to_guardrails_grounding_source(search_results),
-        #     guardrail=(bot.bedrock_guardrails if bot else None),
-        # )
-        # converse_response = call_converse_api(args)
-        # --- FIN BLOQUE MODIFICADO ---
+        response = call_converse_api(args)
 
         reply_txt = response["output"]["message"]["content"][0].get("text", "")
         reply_txt = reply_txt.rstrip()
@@ -422,6 +445,7 @@ async def chat(user_id: str, chat_input: ChatInputWithFiles) -> ChatOutput:
 
 
 def propose_conversation_title(
+    # ... (El contenido de esta función se mantiene igual)
     user_id: str,
     conversation_id: str,
     model: Literal[
@@ -468,6 +492,7 @@ def propose_conversation_title(
 
 
 def fetch_conversation(user_id: str, conversation_id: str) -> Conversation:
+    # ... (El contenido de esta función se mantiene igual)
     conversation = find_conversation_by_id(user_id, conversation_id)
     message_map = {
         message_id: MessageOutput(
@@ -513,6 +538,7 @@ def fetch_conversation(user_id: str, conversation_id: str) -> Conversation:
 def fetch_related_documents(
     user_id: str, chat_input: ChatInputWithFiles
 ) -> list[RelatedDocumentsOutput] | None:
+    # ... (El contenido de esta función se mantiene igual)
     if not chat_input.bot_id:
         return []
 

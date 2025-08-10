@@ -1,4 +1,4 @@
-# backend/app/bedrock.py (VERSIÓN CON LOGS PARA DEPURACIÓN)
+# backend/app/bedrock.py
 
 import base64
 import io
@@ -20,7 +20,6 @@ from app.utils import convert_dict_keys_to_camel_case, get_bedrock_runtime_clien
 from typing_extensions import NotRequired, TypedDict
 
 logger = logging.getLogger(__name__)
-# Aseguramos que el logger capture los mensajes de tipo INFO
 logger.setLevel(logging.INFO)
 
 
@@ -36,11 +35,22 @@ client = get_bedrock_runtime_client()
 
 
 class GuardrailConfig(TypedDict):
+    # ... (otras definiciones de tipos)
     guardrailIdentifier: str
     guardrailVersion: str
     trace: str
     streamProcessingMode: NotRequired[str]
 
+# --- INICIO DE CAMBIOS EN TIPOS ---
+# Actualizamos los tipos para que coincidan con el formato de la API Converse
+class ConverseApiSource(TypedDict):
+    bytes: bytes
+
+class ConverseApiAttachment(TypedDict):
+    name: str
+    format: str # ej: "pdf", "jpeg"
+    source: ConverseApiSource
+# --- FIN DE CAMBIOS EN TIPOS ---
 
 class ConverseApiToolSpec(TypedDict):
     name: str
@@ -62,13 +72,6 @@ class ConverseApiToolResult(TypedDict):
     toolUseId: str
     content: ConverseApiToolResultContent
     status: NotRequired[str]
-
-
-class ConverseApiAttachment(TypedDict):
-    name: str
-    data: bytes
-    type: str
-
 
 class ConverseApiRequest(TypedDict):
     inference_config: dict
@@ -147,6 +150,7 @@ def _convert_to_valid_file_name(file_name: str) -> str:
     return file_name
 
 
+# --- INICIO DEL CÓDIGO REEMPLAZADO ---
 def compose_args_for_converse_api(
     messages: list[MessageModel],
     model: type_model_name,
@@ -157,71 +161,81 @@ def compose_args_for_converse_api(
     guardrail: BedrockGuardrailsModel | None = None,
 ) -> ConverseApiRequest:
     def process_content(c: ContentModel, role: str):
-        # 🟩 Si el contenido es texto plano, simplemente lo empaquetamos como tal
+        # TEXT
         if c.content_type == "text":
             if role == "user" and guardrail and guardrail.grounding_threshold > 0:
-                return [{"guardContent": grounding_source}, {"guardContent": {"text": {"text": c.body, "qualifiers": ["query"]}}}]
+                return [
+                    {"guardContent": grounding_source},
+                    {"guardContent": {"text": {"text": c.body, "qualifiers": ["query"]}}},
+                ]
             return [{"text": c.body}] if isinstance(c.body, str) else []
-        
-        # 🟦 Si es imagen (base64), se decodifica y se empaqueta como imagen binaria
+
+        # IMAGE (base64 -> bytes)
         elif c.content_type == "image":
             if not isinstance(c.body, str):
                 logger.error("El cuerpo de la imagen no es una cadena Base64.")
                 return []
-            format = c.media_type.split("/")[1] if c.media_type else "jpeg"
+            fmt = (c.media_type.split("/")[1] if c.media_type else "jpeg").lower()
             try:
                 image_bytes = base64.b64decode(c.body)
-                return [{"image": {"format": format, "source": {"bytes": image_bytes}}}]
+                return [{"image": {"format": fmt, "source": {"bytes": image_bytes}}}]
             except Exception as e:
                 logger.error(f"Error al decodificar imagen Base64: {e}")
                 return []
-        
-         # 🟥 Si es un archivo adjunto (PDF, Word, etc.), se decodifica y prepara como 'attachment'
+
+        # FILE (PDF, DOCX, etc.) -> va a attachments (NO dentro de messages)
         elif c.content_type == "textAttachment":
             try:
-                # ✅ Paso 1: Decodificamos el contenido base64 del archivo
                 file_bytes = base64.b64decode(c.body)
-                 # ✅ Paso 2: Creamos un attachment válido para Claude (nombre limpio, tipo MIME, datos)
-                return [{
-                    "attachment": {
-                        "name": _convert_to_valid_file_name(c.file_name or "document.pdf"), # Limpia el nombre
-                        "data": file_bytes, # Bytes reales del archivo
-                        "type": c.media_type or "application/pdf", # MIME type correcto
-                    }
-                }]
+                # formato soportado por Converse (pdf, docx, xlsx, csv, txt, md, html, etc.)
+                guessed_fmt = None
+                if c.media_type and "/" in c.media_type:
+                    mt = c.media_type.split("/")[-1].lower()
+                    # mapeo rápido de mime->formato converse
+                    if mt in ["pdf", "csv", "html", "txt", "md"]:
+                        guessed_fmt = mt
+                    elif mt in ["msword", "vnd.openxmlformats-officedocument.wordprocessingml.document"]:
+                        guessed_fmt = "docx"
+                    elif mt in ["vnd.ms-excel", "vnd.openxmlformats-officedocument.spreadsheetml.sheet"]:
+                        guessed_fmt = "xlsx"
+
+                if not guessed_fmt and c.file_name:
+                    ext = c.file_name.split(".")[-1].lower()
+                    guessed_fmt = _get_converse_supported_format(ext)
+
+                if not guessed_fmt:
+                    guessed_fmt = "pdf"  # por defecto
+
+                clean_name = _convert_to_valid_file_name(c.file_name or f"document.{guessed_fmt}")
+                # devolvemos un "marcador" especial para que el caller lo saque a attachments
+                return [{"_attachment": {"name": clean_name, "format": guessed_fmt, "source": {"bytes": file_bytes}}}]
             except Exception as e:
                 logger.error(f"Error al decodificar el archivo adjunto '{c.file_name}': {e}")
                 return []
-        
-        # ❌ Tipo de contenido no soportado
+
         else:
             raise NotImplementedError(f"Unsupported content type: {c.content_type}")
 
-    attachments = []
-    arg_messages = []
-    # 🔁 Iteramos por cada mensaje del historial para procesar sus contenidos
+    attachments: list[dict] = []
+    arg_messages: list[dict] = []
+
     for message in messages:
         if message.role in ["system", "instruction"]:
-            continue # Se omiten mensajes del sistema
+            continue
 
-        content_blocks = []
+        content_blocks: list[dict] = []
         for c in message.content:
-            blocks = process_content(c, message.role) # Procesamos texto, imagen o adjunto
+            blocks = process_content(c, message.role)
             for b in blocks:
-                if "attachment" in b:
-                    # ✅ Paso 3: Extraemos los adjuntos y los agregamos a la lista de 'attachments'
-                    attachments.append(b["attachment"])
+                if "_attachment" in b:
+                    attachments.append(b["_attachment"])
                 else:
                     content_blocks.append(b)
-        
-       # ✅ Paso 4: Agregamos el contenido procesado al cuerpo de mensajes para enviar a Claude
-        if content_blocks:
-            arg_messages.append({
-                "role": message.role,
-                "content": content_blocks,
-            })
 
-    # 🔧 Se construye la configuración de inferencia del modelo (tokens, temperatura, etc.)
+        if content_blocks:
+            arg_messages.append({"role": message.role, "content": content_blocks})
+
+    # Inferencia / sampling
     inference_config = {
         **DEFAULT_GENERATION_CONFIG,
         "maxTokens": 4096,
@@ -235,12 +249,17 @@ def compose_args_for_converse_api(
             else {}
         ),
     }
-
     additional_model_request_fields = {}
-    if 'top_k' in inference_config:
+    if "top_k" in inference_config:
         additional_model_request_fields["top_k"] = inference_config.pop("top_k")
 
-    # ✅ Paso 5: Se crea el diccionario final que será enviado a Claude vía la API de Bedrock
+    # Si hay PDF adjunto y no hay instrucción explícita, empújale una
+    if attachments:
+        has_pdf = any(att.get("format") == "pdf" for att in attachments)
+        if has_pdf:
+            extra_instruction = "Analiza el/los archivo(s) PDF adjunto(s) y responde a la solicitud del usuario."
+            instruction = (instruction + " " + extra_instruction) if instruction else extra_instruction
+
     args: ConverseApiRequest = {
         "inference_config": convert_dict_keys_to_camel_case(inference_config),
         "additional_model_request_fields": additional_model_request_fields,
@@ -250,11 +269,11 @@ def compose_args_for_converse_api(
         "system": [{"text": instruction}] if instruction else [],
     }
 
-    # ✅ Paso 6: Si hay archivos adjuntos, se agregan al payload
     if attachments:
+        # FORMATO CORRECTO PARA CONVERSE:
+        # [{"name":"file.pdf","format":"pdf","source":{"bytes":<binarios>}}, ...]
         args["attachments"] = attachments
 
-    # 🛡️ Si hay configuración de guardrails (moderación), se adjunta también
     if guardrail and guardrail.guardrail_arn and guardrail.guardrail_version:
         args["guardrailConfig"] = {
             "guardrailIdentifier": guardrail.guardrail_arn,
@@ -264,45 +283,36 @@ def compose_args_for_converse_api(
         if stream:
             args["guardrailConfig"]["streamProcessingMode"] = "async"
 
-    # --- INICIO DEL BLOQUE DE LOGS PARA DEPURACIÓN ---
-    # 📋 Log del payload final (sin mostrar los bytes de los archivos por seguridad)
-    logger.info("="*50)
-    logger.info("Argumentos finales para la API de Bedrock Converse:")
-    # Hacemos una copia para no loggear los bytes del archivo que son muy largos
-    args_for_log = args.copy()
-    if "attachments" in args_for_log and args_for_log["attachments"]:
-        args_for_log["attachments"] = [
-            {k: v for k, v in att.items() if k != 'data'} 
-            for att in args_for_log["attachments"]
-        ]
-    logger.info(args_for_log)
-    logger.info("="*50)
-    # --- FIN DEL BLOQUE DE LOGS ---
+    # Logs de depuración (sin bytes)
+    safe_args = dict(args)
+    if safe_args.get("attachments"):
+        safe_args["attachments"] = [{k: v for k, v in a.items() if k != "source"} for a in safe_args["attachments"]]
+    logger.info("=" * 50)
+    logger.info("Payload Converse (sin bytes): %s", safe_args)
+    logger.info("=" * 50)
 
     return args
+# --- FIN DEL CÓDIGO REEMPLAZADO ---
 
 
+# --- INICIO DEL CÓDIGO MODIFICADO ---
 def call_converse_api(args: ConverseApiRequest) -> ConverseApiResponse:
-     # 🛠️ Se obtiene el cliente de runtime de Bedrock
     client = get_bedrock_runtime_client()
-    # 🧱 Se construye el objeto base con los parámetros principales de la llamada
     base_args = {
-        "modelId": args["model_id"], # ID del modelo (por ejemplo, Claude 3.5 Sonnet)
-        "messages": args["messages"], # Mensajes ya procesados (texto, imágenes, adjuntos)
-        "inferenceConfig": args["inference_config"], # Configuración del modelo (tokens, temperatura, etc.)
-        "system": args["system"], # Instrucciones de sistema, si las hay
-        "additionalModelRequestFields": args["additional_model_request_fields"], # Campos opcionales
+        "modelId": args["model_id"],
+        "messages": args["messages"],
+        "inferenceConfig": args["inference_config"],
+        "system": args["system"],
+        "additionalModelRequestFields": args["additional_model_request_fields"],
     }
-    # 🛡️ Si hay guardrails configurados, se agregan
     if "guardrailConfig" in args:
         base_args["guardrailConfig"] = args["guardrailConfig"]
-    
-    # 📎 Si hay archivos adjuntos (PDFs u otros), se agregan a la solicitud
     if "attachments" in args and args["attachments"]:
         base_args["attachments"] = args["attachments"]
 
-    # 🚀 Finalmente, se realiza la llamada a la API de Bedrock con el payload completo
+    logger.info("Llamando a converse con %d attachment(s)", len(base_args.get("attachments", [])))
     return client.converse(**base_args)
+# --- FIN DEL CÓDIGO MODIFICADO ---
 
 
 def calculate_price(
@@ -311,6 +321,7 @@ def calculate_price(
     output_tokens: int,
     region: str = BEDROCK_REGION,
 ) -> float:
+    # ... (El código de esta función se mantiene igual)
     input_price = (
         BEDROCK_PRICING.get(region, {})
         .get(model, {})
@@ -325,6 +336,7 @@ def calculate_price(
 
 
 def get_model_id(model: type_model_name) -> str:
+    # ... (El código de esta función se mantiene igual)
     if model == "claude-v2":
         return "anthropic.claude-v2:1"
     elif model == "claude-instant-v1":
@@ -346,6 +358,7 @@ def get_model_id(model: type_model_name) -> str:
 
 
 def calculate_query_embedding(question: str) -> list[float]:
+    # ... (El código de esta función se mantiene igual)
     model_id = DEFAULT_EMBEDDING_CONFIG["model_id"]
     assert model_id == "cohere.embed-multilingual-v3"
     payload = json.dumps({"texts": [question], "input_type": "search_query"})
@@ -357,6 +370,7 @@ def calculate_query_embedding(question: str) -> list[float]:
 
 
 def calculate_document_embeddings(documents: list[str]) -> list[list[float]]:
+    # ... (El código de esta función se mantiene igual)
     def _calculate_document_embeddings(docs: list[str]) -> list[list[float]]:
         payload = json.dumps({"texts": docs, "input_type": "search_document"})
         response = client.invoke_model(
@@ -368,7 +382,7 @@ def calculate_document_embeddings(documents: list[str]) -> list[list[float]]:
     BATCH_SIZE = 10
     model_id = DEFAULT_EMBEDDING_CONFIG["model_id"]
     assert model_id == "cohere.embed-multilingual-v3"
-    embeddings = []
+    embeddings = [] 
     for i in range(0, len(documents), BATCH_SIZE):
         batch = documents[i : i + BATCH_SIZE]
         embeddings.extend(_calculate_document_embeddings(batch))

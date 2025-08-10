@@ -24,13 +24,11 @@ import useModel from './useModel';
 import useFeedbackApi from './useFeedbackApi';
 
 // Parámetros para la función postChat, ahora usa 'pdfFiles'
-// Tipo de los parámetros que recibe la función `postChat`.
-// Se incluye `pdfFiles`, que es un array de archivos tipo File.
 type PostChatParams = {
-  content: string; // Texto del mensaje
-  base64EncodedImages?: string[]; // Imágenes en base64 opcionales
-  pdfFiles?: File[]; // Archivos PDF opcionales
-  bot?: BotInputType; // Información del bot (si aplica)
+  content: string;
+  base64EncodedImages?: string[];
+  pdfFiles?: File[];
+  bot?: BotInputType;
 };
 
 type ChatStateType = {
@@ -49,7 +47,21 @@ const NEW_MESSAGE_ID = {
 const USE_STREAMING: boolean =
   import.meta.env.VITE_APP_USE_STREAMING === 'true';
 
+// ✨ helper: File -> base64 (sin el prefijo data:)
+const fileToBase64 = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const s = reader.result as string;
+      const base64 = s.includes(',') ? s.split(',')[1] : s;
+      resolve(base64);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
 const useChatState = create<{
+  // ... (el resto del estado de Zustand se mantiene igual)
   conversationId: string;
   setConversationId: (s: string) => void;
   postingMessage: boolean;
@@ -84,6 +96,7 @@ const useChatState = create<{
   getPostedModel: () => Model;
   shouldUpdateMessages: (currentConversation: Conversation) => boolean;
 }>((set, get) => {
+  // ... (el return con el estado de Zustand se mantiene igual)
   return {
     conversationId: '',
     setConversationId: (s) => {
@@ -101,29 +114,23 @@ const useChatState = create<{
     },
     chats: {},
     relatedDocuments: {},
-    setMessages: (id: string, messageMap: MessageMap) => {
+    setMessages: (id, messageMap) => {
       set((state) => ({
         chats: produce(state.chats, (draft) => {
           draft[id] = messageMap;
         }),
       }));
     },
-    copyMessages: (fromId: string, toId: string) => {
+    copyMessages: (fromId, toId) => {
       set((state) => ({
         chats: produce(state.chats, (draft) => {
           draft[toId] = JSON.parse(JSON.stringify(draft[fromId]));
         }),
       }));
     },
-    pushMessage: (
-      id: string,
-      parentMessageId: string | null,
-      currentMessageId: string,
-      content: MessageContent
-    ) => {
+    pushMessage: (id, parentMessageId, currentMessageId, content) => {
       set(() => ({
         chats: produce(get().chats, (draft) => {
-          // 追加対象が子ノードの場合は親ノードに参照情報を追加
           if (draft[id] && parentMessageId && parentMessageId !== 'system') {
             draft[id][parentMessageId] = {
               ...draft[id][parentMessageId],
@@ -149,26 +156,22 @@ const useChatState = create<{
         }),
       }));
     },
-    editMessage: (id: string, messageId: string, content: string) => {
+    editMessage: (id, messageId, content) => {
       set(() => ({
         chats: produce(get().chats, (draft) => {
           draft[id][messageId].content[0].body = content;
         }),
       }));
     },
-    removeMessage: (id: string, messageId: string) => {
+    removeMessage: (id, messageId) => {
       set((state) => ({
         chats: produce(state.chats, (draft) => {
           const childrenIds = [...draft[id][messageId].children];
-
-          // childrenに設定されているノードも全て削除
           while (childrenIds.length > 0) {
             const targetId = childrenIds.pop()!;
             childrenIds.push(...draft[id][targetId].children);
             delete draft[id][targetId];
           }
-
-          // 削除対象のノードを他ノードの参照から削除
           Object.keys(draft[id]).forEach((key) => {
             const idx = draft[id][key].children.findIndex(
               (c) => c === messageId
@@ -181,7 +184,7 @@ const useChatState = create<{
         }),
       }));
     },
-    getMessages: (id: string, currentMessageId: string) => {
+    getMessages: (id, currentMessageId) => {
       return convertMessageMapToArray(get().chats[id] ?? {}, currentMessageId);
     },
     setRelatedDocuments: (messageId, documents) => {
@@ -200,13 +203,13 @@ const useChatState = create<{
       }));
     },
     currentMessageId: '',
-    setCurrentMessageId: (s: string) => {
+    setCurrentMessageId: (s) => {
       set(() => ({
         currentMessageId: s,
       }));
     },
     isGeneratedTitle: false,
-    setIsGeneratedTitle: (b: boolean) => {
+    setIsGeneratedTitle: (b) => {
       set(() => ({
         isGeneratedTitle: b,
       }));
@@ -214,7 +217,6 @@ const useChatState = create<{
     getPostedModel: () => {
       return (
         get().chats[get().conversationId]?.system?.model ??
-        // 画面に即時反映するためNEW_MESSAGEを評価
         get().chats['']?.[NEW_MESSAGE_ID.ASSISTANT]?.model
       );
     },
@@ -279,7 +281,6 @@ const useChat = () => {
     setMessages('', {});
   }, [setConversationId, setMessages]);
 
-  // Error Handling
   useEffect(() => {
     if (error?.response?.status === 404) {
       openSnackbar(t('error.notFoundConversation'));
@@ -290,7 +291,6 @@ const useChat = () => {
     }
   }, [error, navigate, newChat, openSnackbar, t]);
 
-  // when updated messages
   useEffect(() => {
     if (data && shouldUpdateMessages(data)) {
       const tempId = NEW_MESSAGE_ID.ASSISTANT;
@@ -309,10 +309,8 @@ const useChat = () => {
                 : realMessages[lastRealId].content,
           },
         };
-
         setMessages(conversationId, mergedMap);
         setCurrentMessageId(lastRealId);
-
         if ((relatedDocuments[tempId]?.length ?? 0) > 0) {
           moveRelatedDocuments(tempId, lastRealId);
         }
@@ -324,7 +322,6 @@ const useChat = () => {
         setMessages(conversationId, updatedMap);
         setCurrentMessageId(lastRealId || tempId);
       }
-
       setModelId(getPostedModel());
     }
   }, [
@@ -342,8 +339,7 @@ const useChat = () => {
 
   useEffect(() => {
     setIsGeneratedTitle(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversationId]);
+  }, [conversationId, setIsGeneratedTitle]);
 
   const pushNewMessage = (
     parentMessageId: string | null,
@@ -361,29 +357,15 @@ const useChat = () => {
       NEW_MESSAGE_ID.ASSISTANT,
       {
         role: 'assistant',
-        content: [
-          {
-            contentType: 'text',
-            body: '',
-          },
-        ],
+        content: [{ contentType: 'text', body: '' }],
         model: messageContent.model,
         feedback: messageContent.feedback,
       }
     );
   };
 
-  const postChat = (params: PostChatParams) => {
+  const postChat = async (params: PostChatParams) => {
     const { content, bot, base64EncodedImages, pdfFiles } = params;
-
-    // 🔁 CAMBIOS AÑADIDOS CON LOGS VISIBLES
-    // [1] Entrada al método
-    console.log('[useChat/postChat] Iniciando envío de mensaje', {
-      content,
-      imageCount: base64EncodedImages?.length || 0,
-      pdfCount: pdfFiles?.length || 0,
-    });
-
     const isNewChat = !conversationId;
     const newConversationId = ulid();
 
@@ -391,51 +373,60 @@ const useChat = () => {
       useChatState.getState().chats[conversationId] ?? {},
       currentMessageId
     );
-
     const parentMessageId = isNewChat
       ? 'system'
       : tmpMessages[tmpMessages.length - 1]?.id ?? 'system';
-
     const modelToPost = isNewChat ? modelId : getPostedModel();
 
+    // --- INICIO DE LOS CAMBIOS ---
+
+    // 1) CONVERTIR PDFs A BLOQUES DE CONTENIDO (como imágenes)
+    const attachmentBlocks =
+      pdfFiles && pdfFiles.length
+        ? await Promise.all(
+            pdfFiles.map(async (f) => ({
+              contentType: 'textAttachment' as const,
+              fileName: f.name,
+              mediaType: f.type || 'application/pdf',
+              body: await fileToBase64(f), // base64 (sin data:)
+            }))
+          )
+        : [];
+
+    console.log(
+      '[useChat/postChat] Adjuntos preparados (en content):',
+      attachmentBlocks.map((a) => ({
+        fileName: a.fileName,
+        mediaType: a.mediaType,
+        bodySample: a.body.slice(0, 40) + '...',
+      }))
+    );
+
+    // 2) ARMAR messageContents (imagenes + texto + adjuntos)
     const messageContents: ContentBlock[] = [];
 
-    // Agregamos cada imagen como bloque de tipo "image"
+    // imágenes
     (base64EncodedImages ?? []).forEach((encodedImage) => {
       const result =
         /data:(?<mediaType>image\/.+);base64,(?<encodedImage>.+)/.exec(
           encodedImage
         );
       if (result?.groups) {
-        console.log('Imagen 1');
         messageContents.push({
           contentType: 'image',
           mediaType: result.groups.mediaType,
           body: result.groups.encodedImage,
         });
-        console.log('Imagen 2');
       }
     });
 
-    // Agregamos cada archivo PDF como bloque de tipo "textAttachment"
-    (pdfFiles ?? []).forEach((file) => {
-      console.log('PDF1');
-      messageContents.push({
-        contentType: 'textAttachment',
-        fileName: file.name,
-        mediaType: file.type || 'application/pdf',
-        body: '', // el archivo se manda fuera de este objeto
-      });
-      console.log('PDF2');
-    });
-
-    // Agregamos el texto del mensaje (si hay)
+    // texto
     if (content.trim() !== '') {
-      messageContents.push({
-        contentType: 'text',
-        body: content,
-      });
+      messageContents.push({ contentType: 'text', body: content });
     }
+
+    // ⬅️ AÑADE LOS PDFs AQUÍ (como otros bloques más del array)
+    messageContents.push(...attachmentBlocks);
 
     if (messageContents.length === 0) {
       openSnackbar(
@@ -444,64 +435,33 @@ const useChat = () => {
       return;
     }
 
-    const messageContent: MessageContent = {
-      content: messageContents,
-      model: modelToPost,
-      role: 'user',
-      feedback: null,
-    };
-
+    // 3) INPUT SIN filesBase64 EN EL ROOT (todo va en message.content)
     const input: PostMessageRequest = {
       conversationId: isNewChat ? newConversationId : conversationId,
       message: {
-        ...messageContent,
-        parentMessageId: parentMessageId,
+        role: 'user',
+        content: messageContents, // ← ya incluye imágenes + texto + PDFs
+        model: modelToPost,
+        feedback: null,
+        parentMessageId,
       },
       botId: bot?.botId,
-      files: pdfFiles?.length ? pdfFiles : undefined,
+      // ❌ nada de files / filesBase64 aquí
     };
+    
+    // El streaming ahora se puede habilitar siempre, ya que los PDFs no requieren un tratamiento especial
+    const shouldUseStreaming = USE_STREAMING;
 
-    // 🔁 CAMBIOS AÑADIDOS CON LOGS VISIBLES
-    // [2] Construcción del payload para enviar
-    console.log('[useChat/postChat] Payload que se enviará:', {
-      conversationId: input.conversationId,
-      message: content,
-      files: pdfFiles?.map((f) => f.name),
-      images: base64EncodedImages?.map(
-        (img, i) => `Imagen ${i + 1}: ${img.slice(0, 60)}...`
-      ),
-      useStreaming: USE_STREAMING,
-    });
+    // --- FIN DE LOS CAMBIOS ---
 
-    // <--- LOG AÑADIDO: Bloque de logs antes de enviar al backend
-    // 4. Log para FormData vs JSON
-    if (pdfFiles?.length) {
-      console.log('[useChat] Se usará FormData para enviar los archivos PDF');
-    } else {
-      console.log('[useChat] Se usará JSON estándar');
-    }
-
-    // 1. Log del payload antes de enviar
-    console.log('[useChat] Enviando mensaje al backend');
-    console.log('[useChat] Texto:', content);
-    console.log(
-      '[useChat] Archivos PDF adjuntos:',
-      pdfFiles?.map((f) => f.name)
-    );
-    console.log(
-      '[useChat] Imágenes base64 adjuntas:',
-      base64EncodedImages?.length || 0
-    );
-    console.log('[useChat] Streaming habilitado:', USE_STREAMING);
+    console.log('[useChat] Se usará JSON estándar (archivos en base64).');
     console.log('[useChat] Payload resumido:', {
       ...input,
-      files: pdfFiles?.map((f) => f.name), // Mostrar solo nombres de archivo en el log
       message: {
         ...input.message,
-        // Evitar loggear todo el contenido base64
         content: input.message.content.map((c) =>
-          c.contentType === 'image'
-            ? { ...c, body: `(imagen_base64_truncada)` }
+          c.contentType === 'image' || c.contentType === 'textAttachment'
+            ? { ...c, body: `(base64_truncado)` }
             : c
         ),
       },
@@ -522,18 +482,11 @@ const useChat = () => {
     };
 
     setPostingMessage(true);
-    pushNewMessage(parentMessageId, messageContent);
+    // NOTA: 'messageContent' ya no existe, usamos 'input.message' para el estado optimista.
+    pushNewMessage(parentMessageId, input.message);
 
-    // 🔁 CAMBIOS AÑADIDOS CON LOGS VISIBLES
-    // [3] Antes de llamar a la API
-    console.log('[useChat/postChat] Enviando a postMessage...');
-
-    // Si está habilitado el streaming, se usa WebSocket.
-    // Sino, se usa `conversationApi.postMessage` con FormData si hay archivos.
     const postPromise: Promise<string> = new Promise((resolve, reject) => {
-      // <--- LOG AÑADIDO: Indica el modo de envío
-      if (USE_STREAMING) {
-        console.log('[useChat] Usando WebSocket para streaming de respuesta');
+      if (shouldUseStreaming) {
         postStreaming({
           input,
           hasKnowledge: bot?.hasKnowledge,
@@ -541,29 +494,12 @@ const useChat = () => {
             editMessage(conversationId, NEW_MESSAGE_ID.ASSISTANT, c);
           },
         })
-          .then((message) => {
-            // <--- LOG AÑADIDO: Confirma que el streaming terminó
-            console.log('[useChat] Respuesta de streaming completada.');
-            resolve(message);
-          })
+          .then((message) => resolve(message))
           .catch((e) => reject(e));
       } else {
-        console.log('[useChat] Envío estándar sin streaming');
-        console.log('[useChat] Llamando a postMessage de useConversationApi');
         conversationApi
           .postMessage(input)
           .then((res) => {
-            // 🔁 CAMBIOS AÑADIDOS CON LOGS VISIBLES
-            // [4] Si no hay streaming, log de la respuesta
-            if (!USE_STREAMING) {
-              console.log(
-                '[useChat/postChat] Respuesta del backend (sin streaming):',
-                res.data
-              );
-            }
-            // <--- LOG AÑADIDO: Confirma la respuesta y loguea el ID del mensaje
-            console.log('[useChat] Respuesta del backend recibida');
-            console.log('[useChat] Mensaje ID:', (res.data.message as any).id);
             editMessage(
               conversationId,
               NEW_MESSAGE_ID.ASSISTANT,
@@ -584,7 +520,6 @@ const useChat = () => {
         }
       })
       .catch((e) => {
-        // <--- LOG AÑADIDO: Captura y loguea errores
         console.error('[useChat] Error al enviar el mensaje:', e);
         setCurrentMessageId(NEW_MESSAGE_ID.ASSISTANT);
       })
@@ -616,22 +551,18 @@ const useChat = () => {
     if (props?.messageId) {
       index = messages.findIndex((m) => m.id === props.messageId);
     }
-
     const isRetryError = messages[messages.length - 1].role === 'user';
     if (index === -1) {
       index = isRetryError ? messages.length - 1 : messages.length - 2;
     }
-
     const parentMessage = produce(messages[index], (draft) => {
       if (props?.content) {
         draft.content[0].body = props.content;
       }
     });
-
     if (props?.content) {
       editMessage(conversationId, parentMessage.id, props.content);
     }
-
     const input: PostMessageRequest = {
       conversationId: conversationId,
       message: {
@@ -640,13 +571,10 @@ const useChat = () => {
       },
       botId: props?.bot?.botId,
     };
-
     if (input.message.parentMessageId === null) {
       input.message.parentMessageId = 'system';
     }
-
     setPostingMessage(true);
-
     if (isRetryError) {
       pushMessage(
         conversationId ?? '',
@@ -654,12 +582,7 @@ const useChat = () => {
         NEW_MESSAGE_ID.ASSISTANT,
         {
           role: 'assistant',
-          content: [
-            {
-              contentType: 'text',
-              body: '',
-            },
-          ],
+          content: [{ contentType: 'text', body: '' }],
           model: messages[index].model,
           feedback: messages[index].feedback,
         }
@@ -667,9 +590,7 @@ const useChat = () => {
     } else {
       pushNewMessage(parentMessage.parent, parentMessage);
     }
-
     setCurrentMessageId(NEW_MESSAGE_ID.ASSISTANT);
-
     postStreaming({
       input,
       dispatch: (c: string) => {
@@ -687,7 +608,6 @@ const useChat = () => {
       .finally(() => {
         setPostingMessage(false);
       });
-
     if (input.botId) {
       conversationApi
         .getRelatedDocuments({

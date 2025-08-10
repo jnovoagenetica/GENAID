@@ -68,14 +68,19 @@ export type DisplayMessageContent = MessageContent & {
   sibling: string[];
 };
 
+// --- CAMBIO APLICADO AQUÍ ---
 export type PostMessageRequest = {
   conversationId?: string;
   message: MessageContent & {
     parentMessageId: null | string;
   };
   botId?: string;
-  files?: File[];
+  files?: File[]; // Esta línea se puede eliminar si ya no usas multipart/form-data
+  
+  // 👇 PROPIEDAD AÑADIDA PARA SOLUCIONAR EL ERROR
+  filesBase64?: { fileName: string; mediaType: string; base64: string }[];
 };
+// --- FIN DEL CAMBIO ---
 
 export type PostMessageResponse = {
   conversationId: string;

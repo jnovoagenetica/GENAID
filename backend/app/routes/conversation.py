@@ -18,11 +18,11 @@ from app.repositories.conversation import (
     find_conversation_by_user_id,
     update_feedback,
 )
-from app.repositories.models.conversation import FeedbackModel
+from app.repositories.models.conversation import FeedbackModel, ContentModel
 from app.routes.schemas.conversation import (
     ChatInput,
     ChatOutput,
-    ChatInputWithFiles,  # Nuevo esquema
+    ChatInputWithFiles,
     Conversation,
     ConversationMetaOutput,
     FeedbackInput,
@@ -40,6 +40,7 @@ from app.usecases.chat import (
 from app.user import User
 
 import os
+import base64 # Importamos base64 a nivel de módulo
 
 router = APIRouter(tags=["conversation"])
 
@@ -53,48 +54,57 @@ def health():
 @router.post("/conversation", response_model=ChatOutput)
 async def post_message(
     request: Request,
-    message: str = Form(...), # El contenido del mensaje del usuario en formato JSON (tipo Form)
-    conversation_id: str = Form(...), # El ID de la conversación (tipo Form)
-    bot_id: Optional[str] = Form(None), # ID del bot (opcional)
-    files: Optional[List[UploadFile]] = File(None), # Lista de archivos adjuntos (PDFs, etc.)
+    message: str = Form(...),
+    conversation_id: str = Form(...),
+    bot_id: Optional[str] = Form(None),
+    files: Optional[List[UploadFile]] = File(None),
 ):
     """Send chat message with optional files (PDFs, etc.)"""
-    """
-    Ruta que recibe un nuevo mensaje del usuario, con opción de incluir archivos adjuntos como PDFs.
-
-    🔹 Esta función maneja solicitudes con formato multipart/form-data.
-    🔹 El campo 'message' debe ser un string JSON, por eso se decodifica con json.loads().
-    🔹 Los archivos se reciben como una lista de UploadFile desde el frontend.
-    🔹 Se construye un objeto `ChatInputWithFiles`, que encapsula todos estos datos.
-    🔹 Se llama a la función `chat()` (en usecases) que procesará el mensaje y manejará los adjuntos.
-    """
-    current_user: User = request.state.current_user # Recupera el usuario autenticado desde el request
+    current_user: User = request.state.current_user
 
     try:
-        message_dict = json.loads(message) # Decodifica el string JSON en un diccionario
+        message_dict = json.loads(message)
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON in 'message' field")
 
-    
-    # --- GUARDAR ARCHIVOS EN C:\uploads ---
+    # --- INICIO DEL CÓDIGO CORREGIDO Y ROBUSTO ---
+    pdf_contents = []
     if files:
-        print(f"[BACKEND] Archivos recibidos: {len(files)}")
+        # Directorio para guardar archivos (si es para depuración)
         UPLOADS_DIR = r"C:\uploads"
         os.makedirs(UPLOADS_DIR, exist_ok=True)
 
         for upload in files:
+            # Leemos el archivo UNA SOLA VEZ y guardamos los bytes
             file_bytes = await upload.read()
+
+            # 1. Guardar en base64 para enviarlo como textAttachment
+            base64_data = base64.b64encode(file_bytes).decode("utf-8")
+            pdf_contents.append(
+                ContentModel(
+                    contentType="textAttachment",
+                    mediaType=upload.content_type,
+                    fileName=upload.filename,
+                    body=base64_data,
+                )
+            )
+
+            # 2. Guardar físicamente en C:\uploads (usando los mismos bytes)
             local_path = os.path.join(UPLOADS_DIR, upload.filename)
             with open(local_path, "wb") as f:
                 f.write(file_bytes)
 
-            print(f"[BACKEND] Archivo guardado: {upload.filename} → {local_path}")
+            print(f"[BACKEND] Archivo procesado y guardado: {upload.filename} → {local_path}")
             print(f"[BACKEND] Tipo MIME: {upload.content_type} | Tamaño: {len(file_bytes)} bytes")
+
+        # 3. Extender el contenido del mensaje con los adjuntos procesados
+        if "content" in message_dict:
+            message_dict["content"].extend([c.dict() for c in pdf_contents])
     else:
         print("[BACKEND] No se recibieron archivos adjuntos")
-    # --- FIN BLOQUE GUARDADO ---
+    # --- FIN DEL CÓDIGO CORREGIDO Y ROBUSTO ---
 
-    # Crea un esquema que encapsula el mensaje, ID de conversación, bot y archivos
+    # Crea un esquema que encapsula el mensaje (ya modificado), ID de conversación, bot y archivos
     chat_input = ChatInputWithFiles(
         conversation_id=conversation_id,
         message=message_dict,
@@ -102,9 +112,8 @@ async def post_message(
         files=files,
     )
 
-    # Llama al caso de uso principal, que maneja lógica de chat y envía al modelo
     output = chat(user_id=current_user.id, chat_input=chat_input)
-    return output # Devuelve la respuesta del modelo como JSON (ChatOutput)
+    return output
 
 
 @router.post(
@@ -120,6 +129,7 @@ def get_related_documents(
     return output
 
 
+# ... (el resto de las rutas se mantienen igual)
 @router.get("/conversation/{conversation_id}", response_model=Conversation)
 def get_conversation(request: Request, conversation_id: str):
     """Get a conversation history"""

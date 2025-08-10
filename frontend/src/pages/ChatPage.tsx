@@ -43,9 +43,19 @@ const ChatPage: React.FC = () => {
   const { conversationId: paramConversationId, botId: paramBotId } =
     useParams();
 
-  // Estado para almacenar el archivo PDF adjunto.
-  // Esta variable mantiene el archivo seleccionado hasta que se envía el mensaje.
-  const [attachedFile, setAttachedFile] = useState<File | null>(null);
+  // 1) Estado: de File | null → File[]
+  // 👈 CAMBIO: Ahora es un array para soportar múltiples archivos.
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+
+  // 3) Etiqueta resumida para la UI actual (muestra 1 nombre + “(+N)”)
+  // 👈 CAMBIO: Se crea una etiqueta para mostrar en la UI.
+  const attachedLabel = useMemo(() => {
+    if (attachedFiles.length === 0) return null;
+    const extra = attachedFiles.length - 1;
+    return extra > 0
+      ? `${attachedFiles[0].name} (+${extra})`
+      : attachedFiles[0].name;
+  }, [attachedFiles]);
 
   const botId = useMemo(() => {
     return paramBotId ?? getBotId(conversationId);
@@ -89,10 +99,11 @@ const ChatPage: React.FC = () => {
     return botId !== null && !isAvailabilityBot && !isLoadingBot;
   }, [botId, isAvailabilityBot, isLoadingBot]);
 
+  // 7) Limpieza al cambiar de conversación
   useEffect(() => {
     setConversationId(paramConversationId ?? '');
-    // Limpiar el archivo adjunto si cambia la conversación
-    setAttachedFile(null);
+    // 👈 CAMBIO: Limpiar el array de archivos.
+    setAttachedFiles([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paramConversationId]);
 
@@ -105,46 +116,34 @@ const ChatPage: React.FC = () => {
       : undefined;
   }, [bot?.hasKnowledge, botId]);
 
-  // <--- AÑADIDO: Log mejorado para confirmar recepción en el componente padre
+  // 2) onAttachDocument: acumular varios
+  // 👈 CAMBIO: Acumula archivos en el estado en lugar de reemplazarlo.
   const onAttachDocument = (file: File) => {
     console.log('[ChatPage] Recibido archivo desde InputChatContent:', {
       nombre: file.name,
       tipo: file.type,
       tamañoKB: (file.size / 1024).toFixed(2),
     });
-    setAttachedFile(file);
+    setAttachedFiles((prev) => [...prev, file]);
   };
 
-  // Función que se llama al enviar un mensaje desde el input (InputChatContent)
-  // Aquí se construye el payload que se enviará al backend.
-  // Si hay un archivo PDF adjunto, se incluye en el array `pdfFiles`.
-  // También se pasa `base64EncodedImages` si hay imágenes.
+  // 4) onSend: enviar todos los PDFs y limpiar
+  // 👈 CAMBIO: Envía todos los archivos del array `attachedFiles`.
   const onSend = useCallback(
     async (content: string, base64EncodedImages?: string[]) => {
-      const pdfFiles: File[] = [];
-      if (attachedFile) {
-        pdfFiles.push(attachedFile);
-      }
+      const pdfFiles = attachedFiles;
 
-      // <--- AÑADIDO: Log justo antes de enviar al backend
       console.log('[ChatPage] Enviando mensaje...');
       console.log('[ChatPage] Contenido:', content);
       console.log(
-        '[ChatPage] PDF adjunto:',
-        attachedFile?.name,
-        attachedFile?.type,
-        attachedFile?.size
+        '[ChatPage] PDFs adjuntos:',
+        pdfFiles.map((f) => `${f.name} (${f.type}) ${f.size}B`)
       );
       console.log(
         '[ChatPage] Imágenes base64:',
         base64EncodedImages?.length ?? 0
       );
 
-      // Enviamos el mensaje usando `postChat`, que se encarga del flujo completo:
-      // - Crear conversación si no existe
-      // - Adjuntar archivos PDF si los hay
-      // - Manejar imágenes base64
-      // - Enviar al backend usando el hook useConversationApi
       postChat({
         content,
         base64EncodedImages,
@@ -152,16 +151,16 @@ const ChatPage: React.FC = () => {
         bot: inputBotParams,
       });
 
-      // Una vez enviado el mensaje, limpiamos el estado del archivo adjunto
-      setAttachedFile(null);
+      // Limpiar todos los archivos tras el envío
+      setAttachedFiles([]);
     },
-    [inputBotParams, postChat, attachedFile]
+    [inputBotParams, postChat, attachedFiles] // Dependencia actualizada
   );
-  // --- FIN DE LA MODIFICACIÓN ---
 
-  // Esta función elimina el archivo adjunto si el usuario decide removerlo
+  // 5) Remover adjuntos: limpiar todos (por ahora)
+  // 👈 CAMBIO: Elimina todos los PDFs a la vez.
   const handleRemoveAttachedFile = () => {
-    setAttachedFile(null);
+    setAttachedFiles([]);
   };
 
   const onChangeCurrentMessageId = useCallback(
@@ -333,6 +332,7 @@ const ChatPage: React.FC = () => {
           </div>
         )}
         <div className="mb-0 w-full flex justify-center">
+          {/* 6) Props hacia InputChatContent: usa la etiqueta resumida */}
           <InputChatContent
             dndMode={dndMode}
             disabledSend={postingMessage}
@@ -344,7 +344,8 @@ const ChatPage: React.FC = () => {
             }
             onSend={onSend}
             onRegenerate={onRegenerate}
-            attachedFileName={attachedFile ? attachedFile.name : null}
+            // 👈 CAMBIO: Se pasa la nueva etiqueta resumida.
+            attachedFileName={attachedLabel}
             onRemoveAttachedFile={handleRemoveAttachedFile}
             onAttachDocument={onAttachDocument}
           />
