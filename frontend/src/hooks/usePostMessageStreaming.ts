@@ -16,21 +16,24 @@ const PostStreamingStatus = {
   ERROR: 'ERROR',
 };
 
-// --- AÑADIDO: Helper para convertir File -> base64 (sin el prefijo "data:...") ---
-async function fileToBase64(file: File): Promise<string> {
-  const buf = await file.arrayBuffer();
-  let binary = '';
-  const bytes = new Uint8Array(buf);
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
+// Helper: File -> base64 (sin "data:...;base64,")
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error);
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      const b64 = result.includes(',') ? result.split(',')[1] : result; // por si el navegador devuelve dataURL
+      resolve(b64);
+    };
+    reader.readAsDataURL(file);
+  });
 }
-// --- FIN DEL AÑADIDO ---
+
+type AttachmentOut = { name: string; mimeType: string; base64: string };
 
 const usePostMessageStreaming = create<{
   post: (params: {
-    // Se añade `files` a la entrada para procesarlos aquí
     input: PostMessageRequest & { files?: File[] };
     hasKnowledge?: boolean;
     dispatch: (completion: string) => void;
@@ -49,48 +52,64 @@ const usePostMessageStreaming = create<{
       const text =
         input.message.content.find((c) => c.contentType === 'text')?.body ?? '';
 
-      // Construir el contenido del mensaje para streaming
+      // 1) Content para el mensaje (texto + imágenes)
       const contents: any[] = [
-        // 1. Añadir el texto del usuario
         { contentType: 'text', body: text },
-        // 2. Añadir imágenes que ya venían en el content (si las hay)
         ...input.message.content.filter((c) => c.contentType === 'image'),
-        // 2.5 (AÑADIDO) Añadir adjuntos que ya venían (si existieran)
-        ...input.message.content.filter(
-          (c) => c.contentType === 'textAttachment'
-        ),
       ];
 
-      // 3. Procesar y adjuntar PDFs (y otros archivos) que vienen como File[]
+      // 2) Recolectar attachments que ya vengan como "textAttachment" en el content
+      const attachmentsFromContent: AttachmentOut[] = input.message.content
+        .filter((c) => c.contentType === 'textAttachment' && c.body)
+        .map((c: any) => ({
+          name: c.fileName || 'archivo.pdf',
+          mimeType: c.mimeType || c.mediaType || 'application/pdf',
+          base64: c.body, // ya viene en base64
+        }));
+
+      // 3) Convertir los File[] entrantes a attachments y, opcionalmente, replicarlos como textAttachment en content
+      const attachmentsFromFiles: AttachmentOut[] = [];
       for (const f of input.files ?? []) {
         if (f.type === 'application/pdf') {
-          const b64 = await fileToBase64(f);
+          const base64 = await fileToBase64(f);
+          attachmentsFromFiles.push({
+            name: f.name,
+            mimeType: f.type || 'application/pdf',
+            base64,
+          });
+
+          // Opcional: mantener compatibilidad con flujos antiguos
           contents.push({
             contentType: 'textAttachment',
-            body: b64, // solo la cadena base64
+            body: base64,
             fileName: f.name,
-            mediaType: f.type, // "application/pdf"
+            mimeType: f.type || 'application/pdf',
           });
         }
-        // Aquí se podría añadir lógica para otros tipos de archivo si es necesario
+        // Si luego quieres soportar otros tipos, se agregan aquí.
       }
 
-      // 4. Construir el payload final que se enviará por WebSocket
-      const payload = {
+      const attachments: AttachmentOut[] = [
+        ...attachmentsFromContent,
+        ...attachmentsFromFiles,
+      ];
+
+      // 4) Payload final: incluimos "attachments" a nivel raíz
+      const payload: any = {
         ...input,
         message: {
           ...input.message,
-          content: contents, // Usamos el contenido recién construido
+          content: contents,
         },
+        attachments, // <--- CLAVE para el backend
         token,
       };
-      // Quitar la propiedad `files` para no enviarla en el JSON
-      delete (payload as any).files;
+      delete payload.files;
 
       console.log('[STREAMING] Enviando mensaje por WebSocket');
       console.log(
-        '[STREAMING] Nº adjuntos totales (PDF/otros):',
-        contents.filter((c) => c.contentType === 'textAttachment').length
+        '[STREAMING] Adjuntos (payload.attachments):',
+        attachments.map((a) => ({ name: a.name, mimeType: a.mimeType, size_b64: a.base64.length }))
       );
 
       const payloadString = JSON.stringify(payload);
@@ -114,12 +133,7 @@ const usePostMessageStreaming = create<{
         const ws = new WebSocket(WS_ENDPOINT);
 
         ws.onopen = () => {
-          ws.send(
-            JSON.stringify({
-              step: PostStreamingStatus.START,
-              token,
-            })
-          );
+          ws.send(JSON.stringify({ step: PostStreamingStatus.START, token }));
         };
 
         ws.onmessage = (message) => {
@@ -127,22 +141,14 @@ const usePostMessageStreaming = create<{
             if (
               message.data === '' ||
               message.data === 'Message sent.' ||
-              message.data.startsWith(
-                '{"message": "Endpoint request timed out",'
-              )
+              message.data.startsWith('{"message": "Endpoint request timed out",')
             ) {
               return;
             }
 
             if (message.data === 'Session started.') {
               chunkedPayloads.forEach((chunk, index) => {
-                ws.send(
-                  JSON.stringify({
-                    step: PostStreamingStatus.BODY,
-                    index,
-                    part: chunk,
-                  })
-                );
+                ws.send(JSON.stringify({ step: PostStreamingStatus.BODY, index, part: chunk }));
               });
               return;
             }
@@ -150,11 +156,7 @@ const usePostMessageStreaming = create<{
             if (message.data === 'Message part received.') {
               receivedCount++;
               if (receivedCount === chunkedPayloads.length) {
-                ws.send(
-                  JSON.stringify({
-                    step: PostStreamingStatus.END,
-                  })
-                );
+                ws.send(JSON.stringify({ step: PostStreamingStatus.END }));
               }
               return;
             }
@@ -167,24 +169,18 @@ const usePostMessageStreaming = create<{
                   dispatch(i18next.t('bot.label.retrievingKnowledge'));
                   break;
 
-                // --- CORREGIDO: Se eliminó el guion bajo erróneo ---
                 case PostStreamingStatus.STREAMING:
                   if (data.completion || data.completion === '') {
-                    if (
-                      completion.endsWith(i18next.t('app.chatWaitingSymbol'))
-                    ) {
+                    if (completion.endsWith(i18next.t('app.chatWaitingSymbol'))) {
                       completion = completion.slice(0, -1);
                     }
-                    completion +=
-                      data.completion + i18next.t('app.chatWaitingSymbol');
+                    completion += data.completion + i18next.t('app.chatWaitingSymbol');
                     dispatch(completion);
                   }
                   break;
 
                 case PostStreamingStatus.STREAMING_END:
-                  if (
-                    completion.endsWith(i18next.t('app.chatWaitingSymbol'))
-                  ) {
+                  if (completion.endsWith(i18next.t('app.chatWaitingSymbol'))) {
                     completion = completion.slice(0, -1);
                     dispatch(completion);
                   }

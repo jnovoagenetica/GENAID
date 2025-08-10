@@ -21,7 +21,8 @@ from app.routes.api_publication import router as api_publication_router
 from app.routes.bot import router as bot_router
 from app.routes.conversation import router as conversation_router
 from app.routes.published_api import router as published_api_router
-from app.ws_local import router as ws_local_router  # <--- AÑADIDO: importar tu WS local
+# --- CORRECCIÓN: Importar el router local (ws_local.py) en lugar del de producción ---
+from app.ws_local import router as ws_local_router
 from app.user import User
 from app.utils import is_running_on_lambda
 from fastapi import Depends, FastAPI, Request
@@ -66,7 +67,8 @@ if not is_published_api:
     app.include_router(bot_router)
     app.include_router(api_publication_router)
     app.include_router(admin_router)
-    app.include_router(ws_local_router)  # <--- AÑADIDO: añadir aquí el websocket local
+    # --- Router del WebSocket local incluido correctamente ---
+    app.include_router(ws_local_router)
 else:
     app.include_router(published_api_router)
 
@@ -102,7 +104,7 @@ app.add_exception_handler(Exception, error_handler_factory(500))
 
 
 @app.middleware("http")
-def add_current_user_to_request(request: Request, call_next: ASGIApp):
+async def add_current_user_to_request(request: Request, call_next: ASGIApp):
     if is_running_on_lambda():
         # Lógica para cuando se ejecuta en AWS Lambda (producción)
         if not is_published_api:
@@ -120,21 +122,25 @@ def add_current_user_to_request(request: Request, call_next: ASGIApp):
                 groups=[],
             )
     else:
-        # 3. Lógica para desarrollo local con AUTENTICACIÓN REAL
-        # Ahora que el .env.local se carga correctamente, podemos verificar el token de Cognito.
+        # Lógica para desarrollo local con AUTENTICACIÓN REAL
         authorization = request.headers.get("Authorization")
         if authorization:
-            token_str = authorization.split(" ")[1]
-            token = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token_str)
-            request.state.current_user = get_current_user(token)
+            try:
+                token_str = authorization.split(" ")[1]
+                token = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token_str)
+                request.state.current_user = get_current_user(token)
+            except Exception:
+                # Si el token es inválido, se usa un usuario de prueba
+                 request.state.current_user = User(
+                    id="test_user", name="test_user", groups=[]
+                )
         else:
             # Si el frontend no envía token, se usa un usuario de prueba.
-            # (Esto no debería ocurrir si estás logueado en la app)
             request.state.current_user = User(
                 id="test_user", name="test_user", groups=[]
             )
 
-    response = call_next(request)  # type: ignore
+    response = await call_next(request)
     return response
 
 
@@ -148,6 +154,6 @@ async def add_log_requests(request: Request, call_next: ASGIApp):
     # Mostramos solo los primeros 1000 caracteres para no llenar el log con archivos grandes
     logger.info(f"Request body: {body.decode('utf-8')[:1000]}...")
 
-    response = await call_next(request)  # type: ignore
+    response = await call_next(request)
 
     return response

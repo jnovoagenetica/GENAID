@@ -125,7 +125,8 @@ def compose_args(
     stream: bool = False,
     generation_params: GenerationParamsModel | None = None,
 ) -> dict:
-    logger.warn(
+    # --- CAMBIO: logger.warn -> logger.warning ---
+    logger.warning(
         "compose_args is deprecated. Use compose_args_for_converse_api instead."
     )
     return dict(
@@ -150,7 +151,50 @@ def _convert_to_valid_file_name(file_name: str) -> str:
     return file_name
 
 
-# --- INICIO DEL CÓDIGO REEMPLAZADO ---
+# --- NUEVO helper: convertir root attachments {name,mimeType,base64} -> Converse ---
+def _guess_format_from_mime(mime: str | None) -> str | None:
+    if not mime: 
+        return None
+    mt = mime.lower()
+    # mapeo común
+    if mt == "application/pdf": return "pdf"
+    if mt in ("text/csv",): return "csv"
+    if mt in ("text/html",): return "html"
+    if mt in ("text/plain",): return "txt"
+    if mt in ("text/markdown", "text/x-markdown"): return "md"
+    if mt in ("application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"):
+        return "docx"
+    if mt in ("application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"):
+        return "xlsx"
+    return None
+
+def _build_attachments_from_root(uploaded_files: list[dict] | None) -> list[dict]:
+    out: list[dict] = []
+    for f in uploaded_files or []:
+        b64 = f.get("base64") or ""
+        if not b64:
+            continue
+        try:
+            raw = base64.b64decode(b64)
+        except Exception:
+            logger.warning("No se pudo decodificar base64 para %s", f)
+            continue
+
+        name = _convert_to_valid_file_name(f.get("name") or "archivo.pdf")
+        fmt = _guess_format_from_mime(f.get("mimeType"))
+        if not fmt and "." in name:
+            fmt = _get_converse_supported_format(name.rsplit(".", 1)[-1].lower())
+        if not fmt:
+            fmt = "pdf"  # fallback razonable
+
+        out.append({
+            "name": name,
+            "format": fmt,
+            "source": {"bytes": raw},
+        })
+    return out
+
+
 def compose_args_for_converse_api(
     messages: list[MessageModel],
     model: type_model_name,
@@ -159,11 +203,14 @@ def compose_args_for_converse_api(
     generation_params: GenerationParamsModel | None = None,
     grounding_source: dict | None = None,
     guardrail: BedrockGuardrailsModel | None = None,
+    # ⬇️ NUEVO: adjuntos raíz enviados por el WS (payload.attachments)
+    attachments: list[dict] | None = None,
 ) -> ConverseApiRequest:
     def process_content(c: ContentModel, role: str):
         # TEXT
         if c.content_type == "text":
-            if role == "user" and guardrail and guardrail.grounding_threshold > 0:
+            # --- CAMBIO: Añadido 'and grounding_source' ---
+            if role == "user" and guardrail and guardrail.grounding_threshold > 0 and grounding_source:
                 return [
                     {"guardContent": grounding_source},
                     {"guardContent": {"text": {"text": c.body, "qualifiers": ["query"]}}},
@@ -183,15 +230,13 @@ def compose_args_for_converse_api(
                 logger.error(f"Error al decodificar imagen Base64: {e}")
                 return []
 
-        # FILE (PDF, DOCX, etc.) -> va a attachments (NO dentro de messages)
+        # FILE (PDF, DOCX, etc.) -> marcar para attachments
         elif c.content_type == "textAttachment":
             try:
                 file_bytes = base64.b64decode(c.body)
-                # formato soportado por Converse (pdf, docx, xlsx, csv, txt, md, html, etc.)
                 guessed_fmt = None
                 if c.media_type and "/" in c.media_type:
                     mt = c.media_type.split("/")[-1].lower()
-                    # mapeo rápido de mime->formato converse
                     if mt in ["pdf", "csv", "html", "txt", "md"]:
                         guessed_fmt = mt
                     elif mt in ["msword", "vnd.openxmlformats-officedocument.wordprocessingml.document"]:
@@ -204,10 +249,9 @@ def compose_args_for_converse_api(
                     guessed_fmt = _get_converse_supported_format(ext)
 
                 if not guessed_fmt:
-                    guessed_fmt = "pdf"  # por defecto
+                    guessed_fmt = "pdf"
 
                 clean_name = _convert_to_valid_file_name(c.file_name or f"document.{guessed_fmt}")
-                # devolvemos un "marcador" especial para que el caller lo saque a attachments
                 return [{"_attachment": {"name": clean_name, "format": guessed_fmt, "source": {"bytes": file_bytes}}}]
             except Exception as e:
                 logger.error(f"Error al decodificar el archivo adjunto '{c.file_name}': {e}")
@@ -216,7 +260,8 @@ def compose_args_for_converse_api(
         else:
             raise NotImplementedError(f"Unsupported content type: {c.content_type}")
 
-    attachments: list[dict] = []
+    # 1) Construir messages y attachments desde el contenido
+    attachments_from_content: list[dict] = []
     arg_messages: list[dict] = []
 
     for message in messages:
@@ -228,14 +273,36 @@ def compose_args_for_converse_api(
             blocks = process_content(c, message.role)
             for b in blocks:
                 if "_attachment" in b:
-                    attachments.append(b["_attachment"])
+                    attachments_from_content.append(b["_attachment"])
                 else:
                     content_blocks.append(b)
 
         if content_blocks:
             arg_messages.append({"role": message.role, "content": content_blocks})
 
-    # Inferencia / sampling
+    # 2) Construir attachments desde el payload raíz y MERGE sin duplicados
+    attachments_from_root = _build_attachments_from_root(attachments)
+    merged_attachments: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+
+    for a in (attachments_from_root + attachments_from_content):
+        key = (a.get("name") or "", a.get("format") or "")
+        if key in seen:
+            continue
+        seen.add(key)
+        merged_attachments.append(a)
+
+    # 🔎 LOG: adjuntos finales que irán a Bedrock
+    try:
+        atts_names = [a.get("name") for a in merged_attachments]
+        atts_fmts  = [a.get("format") for a in merged_attachments]
+        atts_sizes = [len(a.get("source", {}).get("bytes", b"")) for a in merged_attachments]
+        logger.info("[ConverseArgs] Adjuntos fusionados: count=%d names=%s formats=%s sizes=%s",
+                    len(merged_attachments), atts_names, atts_fmts, atts_sizes)
+    except Exception:
+        logger.exception("[ConverseArgs] No pude inspeccionar merged_attachments")
+
+    # 3) Inference config
     inference_config = {
         **DEFAULT_GENERATION_CONFIG,
         "maxTokens": 4096,
@@ -253,13 +320,19 @@ def compose_args_for_converse_api(
     if "top_k" in inference_config:
         additional_model_request_fields["top_k"] = inference_config.pop("top_k")
 
-    # Si hay PDF adjunto y no hay instrucción explícita, empújale una
-    if attachments:
-        has_pdf = any(att.get("format") == "pdf" for att in attachments)
-        if has_pdf:
+    # 4) Empujar instrucción útil si hay PDF(s)
+    if merged_attachments:
+        if any(att.get("format") == "pdf" for att in merged_attachments):
             extra_instruction = "Analiza el/los archivo(s) PDF adjunto(s) y responde a la solicitud del usuario."
             instruction = (instruction + " " + extra_instruction) if instruction else extra_instruction
 
+    # 🔎 LOG: resumen de mensajes que van a Bedrock
+    try:
+        msg_summary = [{"role": m["role"], "blocks": len(m["content"])} for m in arg_messages]
+        logger.info("[ConverseArgs] Mensajes: %s", msg_summary)
+    except Exception:
+        logger.exception("[ConverseArgs] No pude resumir mensajes")
+        
     args: ConverseApiRequest = {
         "inference_config": convert_dict_keys_to_camel_case(inference_config),
         "additional_model_request_fields": additional_model_request_fields,
@@ -269,10 +342,8 @@ def compose_args_for_converse_api(
         "system": [{"text": instruction}] if instruction else [],
     }
 
-    if attachments:
-        # FORMATO CORRECTO PARA CONVERSE:
-        # [{"name":"file.pdf","format":"pdf","source":{"bytes":<binarios>}}, ...]
-        args["attachments"] = attachments
+    if merged_attachments:
+        args["attachments"] = merged_attachments  # [{name, format, source:{bytes}}]
 
     if guardrail and guardrail.guardrail_arn and guardrail.guardrail_version:
         args["guardrailConfig"] = {
@@ -283,7 +354,7 @@ def compose_args_for_converse_api(
         if stream:
             args["guardrailConfig"]["streamProcessingMode"] = "async"
 
-    # Logs de depuración (sin bytes)
+    # Log seguro (sin bytes)
     safe_args = dict(args)
     if safe_args.get("attachments"):
         safe_args["attachments"] = [{k: v for k, v in a.items() if k != "source"} for a in safe_args["attachments"]]
@@ -292,10 +363,7 @@ def compose_args_for_converse_api(
     logger.info("=" * 50)
 
     return args
-# --- FIN DEL CÓDIGO REEMPLAZADO ---
 
-
-# --- INICIO DEL CÓDIGO MODIFICADO ---
 def call_converse_api(args: ConverseApiRequest) -> ConverseApiResponse:
     client = get_bedrock_runtime_client()
     base_args = {
@@ -311,9 +379,21 @@ def call_converse_api(args: ConverseApiRequest) -> ConverseApiResponse:
         base_args["attachments"] = args["attachments"]
 
     logger.info("Llamando a converse con %d attachment(s)", len(base_args.get("attachments", [])))
-    return client.converse(**base_args)
-# --- FIN DEL CÓDIGO MODIFICADO ---
-
+    try:
+        resp = client.converse(**base_args)
+        # 🔎 LOG: pequeño resumen de la respuesta (sin contenido completo)
+        try:
+            meta = resp.get("ResponseMetadata", {})
+            stop = resp.get("stopReason", "")
+            usage = resp.get("usage", {})
+            logger.info("[ConverseResp] HTTP=%s stopReason=%s usage=%s requestId=%s",
+                        meta.get("HTTPStatusCode"), stop, usage, meta.get("RequestId"))
+        except Exception:
+            logger.exception("[ConverseResp] No pude inspeccionar la respuesta")
+        return resp
+    except Exception as e:
+        logger.exception("[Converse] Error al llamar a converse: %s", e)
+        raise
 
 def calculate_price(
     model: type_model_name,

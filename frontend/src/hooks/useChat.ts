@@ -47,19 +47,6 @@ const NEW_MESSAGE_ID = {
 const USE_STREAMING: boolean =
   import.meta.env.VITE_APP_USE_STREAMING === 'true';
 
-// ✨ helper: File -> base64 (sin el prefijo data:)
-const fileToBase64 = (file: File) =>
-  new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const s = reader.result as string;
-      const base64 = s.includes(',') ? s.split(',')[1] : s;
-      resolve(base64);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-
 const useChatState = create<{
   // ... (el resto del estado de Zustand se mantiene igual)
   conversationId: string;
@@ -366,6 +353,10 @@ const useChat = () => {
 
   const postChat = async (params: PostChatParams) => {
     const { content, bot, base64EncodedImages, pdfFiles } = params;
+    
+    // Log para verificar que los archivos se están recibiendo
+    console.log('[useChat] pdfs adjuntos:', (pdfFiles ?? []).map(f => `${f.name} (${f.type})`));
+
     const isNewChat = !conversationId;
     const newConversationId = ulid();
 
@@ -378,31 +369,7 @@ const useChat = () => {
       : tmpMessages[tmpMessages.length - 1]?.id ?? 'system';
     const modelToPost = isNewChat ? modelId : getPostedModel();
 
-    // --- INICIO DE LOS CAMBIOS ---
-
-    // 1) CONVERTIR PDFs A BLOQUES DE CONTENIDO (como imágenes)
-    const attachmentBlocks =
-      pdfFiles && pdfFiles.length
-        ? await Promise.all(
-            pdfFiles.map(async (f) => ({
-              contentType: 'textAttachment' as const,
-              fileName: f.name,
-              mediaType: f.type || 'application/pdf',
-              body: await fileToBase64(f), // base64 (sin data:)
-            }))
-          )
-        : [];
-
-    console.log(
-      '[useChat/postChat] Adjuntos preparados (en content):',
-      attachmentBlocks.map((a) => ({
-        fileName: a.fileName,
-        mediaType: a.mediaType,
-        bodySample: a.body.slice(0, 40) + '...',
-      }))
-    );
-
-    // 2) ARMAR messageContents (imagenes + texto + adjuntos)
+    // ARMAR messageContents (solo imágenes y texto, los PDFs se manejan por separado)
     const messageContents: ContentBlock[] = [];
 
     // imágenes
@@ -425,47 +392,26 @@ const useChat = () => {
       messageContents.push({ contentType: 'text', body: content });
     }
 
-    // ⬅️ AÑADE LOS PDFs AQUÍ (como otros bloques más del array)
-    messageContents.push(...attachmentBlocks);
-
-    if (messageContents.length === 0) {
+    // Condición de salida si no hay nada que enviar
+    if (messageContents.length === 0 && (pdfFiles ?? []).length === 0) {
       openSnackbar(
         'No hay nada que enviar. Escribe un mensaje o adjunta un archivo.'
       );
       return;
     }
 
-    // 3) INPUT SIN filesBase64 EN EL ROOT (todo va en message.content)
+    // `input` ya no contiene los PDFs, solo texto e imágenes
     const input: PostMessageRequest = {
       conversationId: isNewChat ? newConversationId : conversationId,
       message: {
         role: 'user',
-        content: messageContents, // ← ya incluye imágenes + texto + PDFs
+        content: messageContents,
         model: modelToPost,
         feedback: null,
         parentMessageId,
       },
       botId: bot?.botId,
-      // ❌ nada de files / filesBase64 aquí
     };
-    
-    // El streaming ahora se puede habilitar siempre, ya que los PDFs no requieren un tratamiento especial
-    const shouldUseStreaming = USE_STREAMING;
-
-    // --- FIN DE LOS CAMBIOS ---
-
-    console.log('[useChat] Se usará JSON estándar (archivos en base64).');
-    console.log('[useChat] Payload resumido:', {
-      ...input,
-      message: {
-        ...input.message,
-        content: input.message.content.map((c) =>
-          c.contentType === 'image' || c.contentType === 'textAttachment'
-            ? { ...c, body: `(base64_truncado)` }
-            : c
-        ),
-      },
-    });
 
     const createNewConversation = () => {
       copyMessages('', newConversationId);
@@ -482,13 +428,18 @@ const useChat = () => {
     };
 
     setPostingMessage(true);
-    // NOTA: 'messageContent' ya no existe, usamos 'input.message' para el estado optimista.
     pushNewMessage(parentMessageId, input.message);
+
+    const shouldUseStreaming = USE_STREAMING;
 
     const postPromise: Promise<string> = new Promise((resolve, reject) => {
       if (shouldUseStreaming) {
+        // Pasa los `pdfFiles` directamente al hook de streaming
         postStreaming({
-          input,
+          input: {
+            ...input,
+            files: pdfFiles ?? [], // <-- CLAVE
+          },
           hasKnowledge: bot?.hasKnowledge,
           dispatch: (c: string) => {
             editMessage(conversationId, NEW_MESSAGE_ID.ASSISTANT, c);
@@ -497,6 +448,8 @@ const useChat = () => {
           .then((message) => resolve(message))
           .catch((e) => reject(e));
       } else {
+        // El camino no-streaming ya no envía PDFs.
+        // Se necesitaría lógica adicional aquí para convertir a base64 si se quiere soportar.
         conversationApi
           .postMessage(input)
           .then((res) => {
@@ -592,6 +545,8 @@ const useChat = () => {
     }
     setCurrentMessageId(NEW_MESSAGE_ID.ASSISTANT);
     postStreaming({
+      // NOTA: La regeneración no reenvía archivos adjuntos por ahora.
+      // Se necesitaría lógica adicional para recuperarlos del mensaje original.
       input,
       dispatch: (c: string) => {
         editMessage(conversationId, NEW_MESSAGE_ID.ASSISTANT, c);
