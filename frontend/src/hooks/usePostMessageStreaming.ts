@@ -16,9 +16,22 @@ const PostStreamingStatus = {
   ERROR: 'ERROR',
 };
 
+// --- AÑADIDO: Helper para convertir File -> base64 (sin el prefijo "data:...") ---
+async function fileToBase64(file: File): Promise<string> {
+  const buf = await file.arrayBuffer();
+  let binary = '';
+  const bytes = new Uint8Array(buf);
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+// --- FIN DEL AÑADIDO ---
+
 const usePostMessageStreaming = create<{
   post: (params: {
-    input: PostMessageRequest;
+    // Se añade `files` a la entrada para procesarlos aquí
+    input: PostMessageRequest & { files?: File[] };
     hasKnowledge?: boolean;
     dispatch: (completion: string) => void;
   }) => Promise<string>;
@@ -33,56 +46,54 @@ const usePostMessageStreaming = create<{
 
       const token = (await Auth.currentSession()).getIdToken().getJwtToken();
 
-      console.log('[STREAMING] Enviando mensaje por WebSocket');
-      console.log('[STREAMING] Texto:', input.message);
-      console.log(
-        '[STREAMING] Nº imágenes:',
-        input.message.content.filter((c) => c.contentType === 'image').length
-      );
-      console.log(
-        '[STREAMING] Imagenes (base64 recortado):',
-        input.message.content
-          .filter((c) => c.contentType === 'image')
-          .map((img, i) => `Img ${i + 1}: ${img.body.slice(0, 60)}...`)
-      );
+      const text =
+        input.message.content.find((c) => c.contentType === 'text')?.body ?? '';
 
-      // --- INICIO DEL CÓDIGO AÑADIDO ---
-      // 👉 También loguea y valida adjuntos PDF enviados como bloques 'textAttachment'
-      const attachments = input.message.content.filter(
-        (c: any) => c.contentType === 'textAttachment'
-      ) as Array<{ fileName?: string; mediaType?: string; body?: string }>;
+      // Construir el contenido del mensaje para streaming
+      const contents: any[] = [
+        // 1. Añadir el texto del usuario
+        { contentType: 'text', body: text },
+        // 2. Añadir imágenes que ya venían en el content (si las hay)
+        ...input.message.content.filter((c) => c.contentType === 'image'),
+        // 2.5 (AÑADIDO) Añadir adjuntos que ya venían (si existieran)
+        ...input.message.content.filter(
+          (c) => c.contentType === 'textAttachment'
+        ),
+      ];
 
-      console.log('[STREAMING] Nº adjuntos (PDF):', attachments.length);
-      console.log(
-        '[STREAMING] Adjuntos:',
-        attachments.map((a, i) => ({
-          i: i + 1,
-          fileName: a.fileName,
-          mediaType: a.mediaType,
-          base64Sample: (a.body || '').slice(0, 60) + '...',
-          approxKB: Math.round(((a.body?.length || 0) * 3) / 4 / 1024), // aprox
-        }))
-      );
-
-      // Validaciones mínimas para evitar payloads mal formados
-      attachments.forEach((a, i) => {
-        if (!a.fileName || !a.mediaType || !a.body) {
-          console.warn(
-            `[STREAMING] ⚠️ textAttachment #${i + 1} incompleto:`,
-            {
-              fileName: a.fileName,
-              mediaType: a.mediaType,
-              hasBody: !!a.body,
-            }
-          );
+      // 3. Procesar y adjuntar PDFs (y otros archivos) que vienen como File[]
+      for (const f of input.files ?? []) {
+        if (f.type === 'application/pdf') {
+          const b64 = await fileToBase64(f);
+          contents.push({
+            contentType: 'textAttachment',
+            body: b64, // solo la cadena base64
+            fileName: f.name,
+            mediaType: f.type, // "application/pdf"
+          });
         }
-      });
-      // --- FIN DEL CÓDIGO AÑADIDO ---
+        // Aquí se podría añadir lógica para otros tipos de archivo si es necesario
+      }
 
-      const payloadString = JSON.stringify({
+      // 4. Construir el payload final que se enviará por WebSocket
+      const payload = {
         ...input,
+        message: {
+          ...input.message,
+          content: contents, // Usamos el contenido recién construido
+        },
         token,
-      });
+      };
+      // Quitar la propiedad `files` para no enviarla en el JSON
+      delete (payload as any).files;
+
+      console.log('[STREAMING] Enviando mensaje por WebSocket');
+      console.log(
+        '[STREAMING] Nº adjuntos totales (PDF/otros):',
+        contents.filter((c) => c.contentType === 'textAttachment').length
+      );
+
+      const payloadString = JSON.stringify(payload);
 
       const chunkedPayloads: string[] = [];
       const chunkCount = Math.ceil(payloadString.length / CHUNK_SIZE);
@@ -156,6 +167,7 @@ const usePostMessageStreaming = create<{
                   dispatch(i18next.t('bot.label.retrievingKnowledge'));
                   break;
 
+                // --- CORREGIDO: Se eliminó el guion bajo erróneo ---
                 case PostStreamingStatus.STREAMING:
                   if (data.completion || data.completion === '') {
                     if (
