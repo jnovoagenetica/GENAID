@@ -135,20 +135,9 @@ const InputChatContent: React.FC<Props> = (props) => {
 
   const sendContent = useCallback(() => {
     // <--- AÑADIDO: Log en sendContent
-    console.log('[InputChatContent] Enviando mensaje:', {
-      content,
-      base64EncodedImages,
-    });
 
     // 🔁 CAMBIOS AÑADIDOS
     // [3] Antes de ejecutar props.onSend()
-    console.log('[sendContent] Enviando mensaje con contenido e imágenes:', {
-      content,
-      imageCount: base64EncodedImages.length,
-      images: base64EncodedImages.map(
-        (img, i) => `Imagen ${i + 1}: ${img.slice(0, 60)}...`
-      ),
-    });
 
     props.onSend(
       content,
@@ -210,10 +199,6 @@ const InputChatContent: React.FC<Props> = (props) => {
 
           // 🔁 CAMBIOS AÑADIDOS
           // [2] Al convertir la imagen a base64 y redimensionarla
-          console.log('[encodeAndPushImage] Imagen convertida a base64:', {
-            fileName: imageFile.name,
-            base64Sample: resizedImageData.slice(0, 80) + '...', // recortado para no saturar
-          });
 
           pushBase64EncodedImage(resizedImageData);
         };
@@ -233,11 +218,6 @@ const InputChatContent: React.FC<Props> = (props) => {
       const images = all.filter((f) => f.type.startsWith('image/'));
       if (images.length) {
         images.forEach((img) => {
-          console.log('[handleFileSelection] Imagen seleccionada:', {
-            name: img.name,
-            type: img.type,
-            sizeKB: (img.size / 1024).toFixed(2),
-          });
           encodeAndPushImage(img);
         });
       }
@@ -246,7 +226,6 @@ const InputChatContent: React.FC<Props> = (props) => {
       const pdfs = all.filter((f) => f.type === 'application/pdf');
       if (pdfs.length) {
         pdfs.forEach((pdf) => {
-          console.log('[InputChatContent] Documento enviado al padre:', pdf.name);
           onAttachDocument(pdf); // compat: una llamada por cada PDF
         });
       }

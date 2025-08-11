@@ -119,11 +119,6 @@ const ChatPage: React.FC = () => {
   // 2) onAttachDocument: acumular varios
   // 👈 CAMBIO: Acumula archivos en el estado en lugar de reemplazarlo.
   const onAttachDocument = (file: File) => {
-    console.log('[ChatPage] Recibido archivo desde InputChatContent:', {
-      nombre: file.name,
-      tipo: file.type,
-      tamañoKB: (file.size / 1024).toFixed(2),
-    });
     setAttachedFiles((prev) => [...prev, file]);
   };
 
@@ -132,17 +127,6 @@ const ChatPage: React.FC = () => {
   const onSend = useCallback(
     async (content: string, base64EncodedImages?: string[]) => {
       const pdfFiles = attachedFiles;
-
-      console.log('[ChatPage] Enviando mensaje...');
-      console.log('[ChatPage] Contenido:', content);
-      console.log(
-        '[ChatPage] PDFs adjuntos:',
-        pdfFiles.map((f) => `${f.name} (${f.type}) ${f.size}B`)
-      );
-      console.log(
-        '[ChatPage] Imágenes base64:',
-        base64EncodedImages?.length ?? 0
-      );
 
       postChat({
         content,

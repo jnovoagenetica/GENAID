@@ -106,19 +106,10 @@ const usePostMessageStreaming = create<{
       };
       delete payload.files;
 
-      console.log('[STREAMING] Enviando mensaje por WebSocket');
-      console.log(
-        '[STREAMING] Adjuntos (payload.attachments):',
-        attachments.map((a) => ({ name: a.name, mimeType: a.mimeType, size_b64: a.base64.length }))
-      );
-
       const payloadString = JSON.stringify(payload);
 
       const chunkedPayloads: string[] = [];
       const chunkCount = Math.ceil(payloadString.length / CHUNK_SIZE);
-
-      console.log('[STREAMING] Longitud total del payload:', payloadString.length);
-      console.log('[STREAMING] Número de chunks:', chunkCount);
 
       for (let i = 0; i < chunkCount; i++) {
         const start = i * CHUNK_SIZE;
@@ -189,7 +180,6 @@ const usePostMessageStreaming = create<{
 
                 case PostStreamingStatus.ERROR:
                   ws.close();
-                  console.error(data);
                   throw new Error(i18next.t('error.predict.invalidResponse'));
 
                 default:
@@ -197,18 +187,17 @@ const usePostMessageStreaming = create<{
               }
             } else {
               ws.close();
-              console.error(data);
               throw new Error(i18next.t('error.predict.invalidResponse'));
             }
-          } catch (e) {
-            console.error(e);
+          // Cambiado de catch (e) a catch para evitar el error de variable no usada
+          } catch {
             reject(i18next.t('error.predict.general'));
           }
         };
 
-        ws.onerror = (e) => {
+        // Cambiado de ws.onerror = (e) a ws.onerror = ()
+        ws.onerror = () => {
           ws.close();
-          console.error(e);
           reject(i18next.t('error.predict.general'));
         };
 

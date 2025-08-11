@@ -353,9 +353,8 @@ const useChat = () => {
 
   const postChat = async (params: PostChatParams) => {
     const { content, bot, base64EncodedImages, pdfFiles } = params;
-    
+
     // Log para verificar que los archivos se están recibiendo
-    console.log('[useChat] pdfs adjuntos:', (pdfFiles ?? []).map(f => `${f.name} (${f.type})`));
 
     const isNewChat = !conversationId;
     const newConversationId = ulid();
@@ -472,8 +471,7 @@ const useChat = () => {
           mutate();
         }
       })
-      .catch((e) => {
-        console.error('[useChat] Error al enviar el mensaje:', e);
+      .catch(() => {
         setCurrentMessageId(NEW_MESSAGE_ID.ASSISTANT);
       })
       .finally(() => {
@@ -555,8 +553,7 @@ const useChat = () => {
       .then(() => {
         mutate();
       })
-      .catch((e) => {
-        console.error(e);
+      .catch(() => {
         setCurrentMessageId(NEW_MESSAGE_ID.USER);
         removeMessage(conversationId, NEW_MESSAGE_ID.ASSISTANT);
       })
