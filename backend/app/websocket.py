@@ -49,6 +49,8 @@ logger.setLevel(logging.INFO)
 
 
 def on_stream(token: str, gatewayapi, connection_id: str) -> None:
+    # Log del streaming saliente
+    logger.info("[WS] STREAM token_len=%s", len(token or ""))
     # Send completion
     data_to_send = json.dumps(dict(status="STREAMING", completion=token)).encode(
         "utf-8"
@@ -204,6 +206,26 @@ def process_chat_input(
     user_id: str, chat_input: ChatInput, gatewayapi, connection_id: str
 ) -> dict:
     """Process chat input and send the message to the client."""
+    # 2) Log al entrar a process_chat_input() (confirmar que sigue presente)
+    logger.info("[WS] process_chat_input() - model=%s bot_id=%s", chat_input.message.model, chat_input.bot_id)
+    logger.info("[WS] Mensaje role=%s padre=%s", chat_input.message.role, chat_input.message.parent_message_id)
+
+    # Inspeccionar content blocks del ChatInput que llegó ya parseado
+    try:
+        contents = chat_input.message.content or []
+        by_type = {}
+        for c in contents:
+            by_type[c.content_type] = by_type.get(c.content_type, 0) + 1
+        logger.info("[WS] content blocks recibidos: %s", by_type)
+
+        pdfs = [c for c in contents if c.content_type == "textAttachment"]
+        for i, a in enumerate(pdfs, 1):
+            body = a.body or ""
+            logger.info("[WS] PDF[%d] fileName=%s mime=%s b64_len=%s",
+                        i, a.file_name, a.media_type, len(body) if isinstance(body, str) else "bytes")
+    except Exception:
+        logger.exception("[WS] Error inspeccionando chat_input.message.content")
+    
     logger.info(f"Received chat input: {chat_input}")
 
     try:
@@ -297,6 +319,9 @@ def process_chat_input(
     if guardrail and guardrail.is_guardrail_enabled:
         grounding_source = to_guardrails_grounding_source(search_results)
 
+    # 3) Log justo antes de llamar a Bedrock (tras el RAG opcional)
+    logger.info("[WS] Preparando args para Bedrock. has_knowledge=%s", bool(bot and bot.has_knowledge()))
+    
     args = compose_args_for_converse_api(
         messages=messages,
         model=chat_input.message.model,
@@ -309,6 +334,17 @@ def process_chat_input(
         grounding_source=grounding_source,
         guardrail=guardrail,
     )
+
+    try:
+        # sin bytes:
+        safe = dict(args)
+        atts = []
+        for att in (args.get("attachments") or []):
+            atts.append({k: v for k, v in att.items() if k != "source"})
+        safe["attachments"] = atts
+        logger.info("[WS] Args Bedrock (sin bytes): %s", safe)
+    except Exception:
+        logger.exception("[WS] No se pudo loggear args Bedrock")
 
     stream_handler = ConverseApiStreamHandler(
         model=chat_input.message.model,
@@ -432,6 +468,33 @@ def handler(event, context):
             logger.info(f"Number of message chunks: {len(message_parts)}")
             message_parts.sort(key=lambda x: x["MessagePartId"])
             full_message = "".join(item["MessagePart"] for item in message_parts)
+
+            # 1) Log justo después de reconstruir el payload (PDF en message.content)
+            logger.info("[WS] Payload reconstruido (len=%s)", len(full_message))
+
+            try:
+                parsed = json.loads(full_message)
+                logger.info("[WS] Claves en payload: %s", list(parsed.keys()))
+                msg = parsed.get("message", {})
+                contents = msg.get("content", [])
+                logger.info("[WS] Total content blocks: %d", len(contents))
+
+                # Conteo por tipo
+                by_type = {}
+                for c in contents:
+                    t = c.get("contentType")
+                    by_type[t] = by_type.get(t, 0) + 1
+                logger.info("[WS] contentType breakdown: %s", by_type)
+
+                # Muestras de adjuntos
+                pdfs = [c for c in contents if c.get("contentType") == "textAttachment"]
+                for i, a in enumerate(pdfs, 1):
+                    b64 = a.get("body") or ""
+                    logger.info("[WS] PDF[%d] fileName=%s mime=%s b64_len=%s",
+                                i, a.get("fileName"), a.get("mediaType"), len(b64))
+            except Exception as e:
+                logger.exception("[WS] No se pudo inspeccionar el payload JSON")
+
 
             # Process the concatenated full message
             chat_input = ChatInput(**json.loads(full_message))

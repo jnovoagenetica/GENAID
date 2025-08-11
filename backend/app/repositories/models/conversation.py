@@ -1,7 +1,9 @@
+# backend/app/repositories/models/conversation.py (CAMBIO MÍNIMO)
+
 from __future__ import annotations
 
 import base64
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Union # <--- 1. Importar Union
 
 if TYPE_CHECKING:
     from app.bedrock import (
@@ -15,9 +17,11 @@ from pydantic import BaseModel, Field
 
 
 class ContentModel(BaseModel):
-    content_type: Literal["text", "image", "attachment"]
+    content_type: Literal["text", "image", "textAttachment"]
     media_type: str | None
-    body: str = Field(
+    # --- 2. EL ÚNICO CAMBIO ---
+    # Permitimos que 'body' sea str (lo que llega de la API) o bytes (después de nuestra conversión).
+    body: Union[str, bytes] = Field(
         ...,
         description="Body string. If content_type is image or attachment, it should be base64 encoded.",
     )
@@ -30,6 +34,7 @@ class ContentModel(BaseModel):
     }
 
 
+# --- EL RESTO DEL ARCHIVO ESTÁ EXACTAMENTE IGUAL ---
 class FeedbackModel(BaseModel):
     thumbs_up: bool
     category: str
@@ -58,7 +63,7 @@ class AgentToolUseContentModel(BaseModel):
 
 
 class AgentToolResultModelContentModel(BaseModel):
-    json_: dict | None  # `json` is a reserved keyword on pydantic
+    json_: dict | None
     text: str | None
 
     @classmethod
@@ -101,10 +106,10 @@ class AgentMessageModel(BaseModel):
     @classmethod
     def from_message_model(cls, message: "MessageModel"):
         return AgentMessageModel(
-            role=message.role,  # type: ignore
+            role=message.role,
             content=[
                 AgentContentModel(
-                    content_type=content.content_type,  # type: ignore
+                    content_type=content.content_type,
                     body=content.body,
                 )
                 for content in message.content

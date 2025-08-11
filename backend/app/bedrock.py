@@ -1,10 +1,14 @@
+# backend/app/bedrock.py
+
 import base64
+import io
 import json
 import logging
 import os
 import re
 from pathlib import Path
 
+import fitz  # PyMuPDF
 from app.config import BEDROCK_PRICING, DEFAULT_EMBEDDING_CONFIG
 from app.config import DEFAULT_GENERATION_CONFIG as DEFAULT_CLAUDE_GENERATION_CONFIG
 from app.config import DEFAULT_MISTRAL_GENERATION_CONFIG
@@ -13,9 +17,11 @@ from app.repositories.models.custom_bot import GenerationParamsModel
 from app.repositories.models.custom_bot_guardrails import BedrockGuardrailsModel
 from app.routes.schemas.conversation import type_model_name
 from app.utils import convert_dict_keys_to_camel_case, get_bedrock_runtime_client
-from typing_extensions import NotRequired, TypedDict, no_type_check
+from typing_extensions import NotRequired, TypedDict
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
 
 BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "us-east-1")
 ENABLE_MISTRAL = os.environ.get("ENABLE_MISTRAL", "") == "true"
@@ -29,11 +35,15 @@ client = get_bedrock_runtime_client()
 
 
 class GuardrailConfig(TypedDict):
+    # ... (otras definiciones de tipos)
     guardrailIdentifier: str
     guardrailVersion: str
     trace: str
     streamProcessingMode: NotRequired[str]
 
+# --- TIPOS ELIMINADOS ---
+# Ya no necesitamos ConverseApiAttachment porque los adjuntos
+# van dentro de los mensajes, no en un campo de nivel superior.
 
 class ConverseApiToolSpec(TypedDict):
     name: str
@@ -56,7 +66,6 @@ class ConverseApiToolResult(TypedDict):
     content: ConverseApiToolResultContent
     status: NotRequired[str]
 
-
 class ConverseApiRequest(TypedDict):
     inference_config: dict
     additional_model_request_fields: dict
@@ -64,6 +73,7 @@ class ConverseApiRequest(TypedDict):
     messages: list[dict]
     stream: bool
     system: list[dict]
+    # --- CAMBIO: Se elimina el campo 'attachments' ---
     guardrailConfig: NotRequired[GuardrailConfig]
     tool_config: NotRequired[ConverseApiToolConfig]
 
@@ -108,7 +118,7 @@ def compose_args(
     stream: bool = False,
     generation_params: GenerationParamsModel | None = None,
 ) -> dict:
-    logger.warn(
+    logger.warning(
         "compose_args is deprecated. Use compose_args_for_converse_api instead."
     )
     return dict(
@@ -118,31 +128,53 @@ def compose_args(
     )
 
 
-def _get_converse_supported_format(ext: str) -> str:
+def _get_converse_supported_format(ext: str | None) -> str | None:
+    if not ext:
+        return None
     supported_formats = {
-        "pdf": "pdf",
-        "csv": "csv",
-        "doc": "doc",
-        "docx": "docx",
-        "xls": "xls",
-        "xlsx": "xlsx",
-        "html": "html",
-        "txt": "txt",
-        "md": "md",
+        "pdf": "pdf", "csv": "csv", "doc": "doc", "docx": "docx",
+        "xls": "xls", "xlsx": "xlsx", "html": "html", "txt": "txt", "md": "md",
     }
-    # If the extension is not supported, return "txt"
-    return supported_formats.get(ext, "txt")
+    return supported_formats.get(ext.lower())
+
+# --- ARREGLO: Se reemplaza el helper de sanitización por uno mejor ---
+def _sanitize_bedrock_doc_name(file_name: str) -> str:
+    # Quitar extensión (si viene)
+    try:
+        base = Path(file_name).stem
+    except Exception:
+        base = file_name or "Document"
+
+    # Reemplazar . y _ por espacio
+    base = re.sub(r"[._]+", " ", base)
+
+    # Mantener solo A-Z a-z 0-9 espacio guion y () []
+    base = re.sub(r"[^A-Za-z0-9 \-\(\)\[\]]+", " ", base)
+
+    # Colapsar espacios múltiples y recortar
+    base = re.sub(r"\s+", " ", base).strip()
+
+    if not base:
+        base = "Document"
+
+    # (opcional) limitar longitud: Bedrock suele permitir ~100 chars
+    return base[:100]
 
 
-def _convert_to_valid_file_name(file_name: str) -> str:
-    # Note: The document file name can only contain alphanumeric characters,
-    # whitespace characters, hyphens, parentheses, and square brackets.
-    # The name can't contain more than one consecutive whitespace character.
-    file_name = re.sub(r"[^a-zA-Z0-9\s\-\(\)\[\]]", "", file_name)
-    file_name = re.sub(r"\s+", " ", file_name)
-    file_name = file_name.strip()
-
-    return file_name
+def _guess_format_from_mime(mime: str | None) -> str | None:
+    if not mime: 
+        return None
+    mt = mime.lower()
+    if mt == "application/pdf": return "pdf"
+    if mt in ("text/csv",): return "csv"
+    if mt in ("text/html",): return "html"
+    if mt in ("text/plain",): return "txt"
+    if mt in ("text/markdown", "text/x-markdown"): return "md"
+    if mt in ("application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"):
+        return "docx"
+    if mt in ("application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"):
+        return "xlsx"
+    return None
 
 
 def compose_args_for_converse_api(
@@ -153,69 +185,121 @@ def compose_args_for_converse_api(
     generation_params: GenerationParamsModel | None = None,
     grounding_source: dict | None = None,
     guardrail: BedrockGuardrailsModel | None = None,
+    attachments: list[dict] | None = None,
 ) -> ConverseApiRequest:
     def process_content(c: ContentModel, role: str):
+        # TEXT
         if c.content_type == "text":
-            if role == "user" and guardrail and guardrail.grounding_threshold > 0:
+            if role == "user" and guardrail and guardrail.grounding_threshold > 0 and grounding_source:
                 return [
                     {"guardContent": grounding_source},
-                    {
-                        "guardContent": {
-                            "text": {"text": c.body, "qualifiers": ["query"]}
-                        }
-                    },
+                    {"guardContent": {"text": {"text": c.body, "qualifiers": ["query"]}}},
                 ]
-            elif role == "assistant":
-                return [{"text": c.body if isinstance(c.body, str) else None}]
-            else:
-                return [{"text": c.body}]
+            return [{"text": c.body}] if isinstance(c.body, str) else []
+
+        # IMAGE (base64 -> bytes)
         elif c.content_type == "image":
-            format = c.media_type.split("/")[1] if c.media_type else "unknown"
-            return [
-                {
-                    "image": {
-                        "format": format,
-                        "source": {"bytes": base64.b64decode(c.body)},
-                    }
-                }
-            ]
-        elif c.content_type == "attachment":
-            return [
-                {
+            if not isinstance(c.body, str):
+                logger.error("El cuerpo de la imagen no es una cadena Base64.")
+                return []
+            fmt = (c.media_type.split("/")[1] if c.media_type else "jpeg").lower()
+            try:
+                image_bytes = base64.b64decode(c.body)
+                return [{"image": {"format": fmt, "source": {"bytes": image_bytes}}}]
+            except Exception as e:
+                logger.error(f"Error al decodificar imagen Base64: {e}")
+                return []
+        
+        # --- ARREGLO: Se usa el nuevo sanitizador ---
+        elif c.content_type == "textAttachment":
+            try:
+                file_bytes = base64.b64decode(c.body)
+                guessed_fmt = None
+                if c.media_type and "/" in c.media_type:
+                    mt = c.media_type.split("/")[-1].lower()
+                    if mt in ["pdf","csv","html","txt","md"]:
+                        guessed_fmt = mt
+                    elif mt in ["msword","vnd.openxmlformats-officedocument.wordprocessingml.document"]:
+                        guessed_fmt = "docx"
+                    elif mt in ["vnd.ms-excel","vnd.openxmlformats-officedocument.spreadsheetml.sheet"]:
+                        guessed_fmt = "xlsx"
+
+                if not guessed_fmt and c.file_name:
+                    ext = c.file_name.split(".")[-1].lower()
+                    guessed_fmt = _get_converse_supported_format(ext)
+                if not guessed_fmt:
+                    guessed_fmt = "pdf"
+
+                # Usa siempre este helper al construir el bloque document
+                clean_name = _sanitize_bedrock_doc_name(c.file_name or "Document")
+                logger.info("Adjuntando documento: name='%s' format='%s' size=%d", clean_name, guessed_fmt, len(file_bytes))
+                return [{
                     "document": {
-                        "format": _get_converse_supported_format(
-                            Path(c.file_name).suffix[1:]  # type: ignore
-                        ),
-                        "name": Path(c.file_name).stem,  # type: ignore
-                        "source": {
-                            "bytes": (
-                                c.body.encode("utf-8")
-                                if isinstance(c.body, str)
-                                else c.body
-                            )
-                        },  # And this line
+                        "format": guessed_fmt,
+                        "name": clean_name,
+                        "source": {"bytes": file_bytes}
                     }
-                }
-            ]
+                }]
+            except Exception as e:
+                logger.error(f"Error al decodificar el archivo adjunto '{c.file_name}': {e}")
+                return []
+
         else:
             raise NotImplementedError(f"Unsupported content type: {c.content_type}")
 
-    arg_messages = [
-        {
-            "role": message.role,
-            "content": [
-                block
-                for c in message.content
-                for block in process_content(c, message.role)
-            ],
-        }
-        for message in messages
-        if message.role not in ["system", "instruction"]
-    ]
+    arg_messages: list[dict] = []
+    for message in messages:
+        if message.role in ["system", "instruction"]:
+            continue
 
+        content_blocks: list[dict] = []
+        for c in message.content:
+            blocks = process_content(c, message.role)
+            content_blocks.extend(blocks)
+
+        if content_blocks:
+            arg_messages.append({"role": message.role, "content": content_blocks})
+            
+    def _doc_block(name: str, fmt: str, raw: bytes) -> dict:
+        return {"document": {"format": fmt, "name": name, "source": {"bytes": raw}}}
+
+    root_doc_blocks = []
+    for f in (attachments or []):
+        b64 = f.get("base64") or ""
+        if not b64:
+            continue
+        try:
+            raw = base64.b64decode(b64)
+            # --- ARREGLO: Se aplica el mismo helper aquí ---
+            original_file_name = f.get("name") or ""
+            name = _sanitize_bedrock_doc_name(original_file_name or "Document")
+            # Extraer formato del MIME type o del nombre original
+            fmt = (_guess_format_from_mime(f.get("mimeType"))
+                   or (original_file_name.rsplit(".", 1)[-1].lower() if "." in original_file_name else None))
+            fmt = _get_converse_supported_format(fmt) if fmt else "pdf"
+            
+            logger.info("Adjuntando documento (raíz): name='%s' format='%s' size=%d", name, fmt, len(raw))
+            root_doc_blocks.append(_doc_block(name, fmt, raw))
+        except Exception as e:
+            logger.warning("No se pudo decodificar base64 para %s: %s", f.get('name'), e)
+
+    if root_doc_blocks:
+        if not arg_messages or arg_messages[-1]["role"] != "user":
+            arg_messages.append({"role": "user", "content": []})
+        arg_messages[-1]["content"].extend(root_doc_blocks)
+
+    try:
+        msg_summary = []
+        for m in arg_messages:
+            block_types = [list(b.keys())[0] for b in m["content"]]
+            msg_summary.append({"role": m["role"], "blocks": block_types})
+        logger.info("[ConverseArgs] Mensajes: %s", msg_summary)
+    except Exception:
+        logger.exception("[ConverseArgs] No pude resumir mensajes")
+        
     inference_config = {
         **DEFAULT_GENERATION_CONFIG,
-        "maxTokens": 200_000,  # Forzado siempre
+        "maxTokens": 4096,
         **(
             {
                 "temperature": generation_params.temperature,
@@ -226,8 +310,13 @@ def compose_args_for_converse_api(
             else {}
         ),
     }
+    additional_model_request_fields = {}
+    if "top_k" in inference_config:
+        additional_model_request_fields["top_k"] = inference_config.pop("top_k")
 
-    additional_model_request_fields = {"top_k": inference_config.pop("top_k")}
+    if any(any("document" in b for b in m["content"]) for m in arg_messages):
+        extra_instruction = "Analiza el/los archivo(s) PDF adjunto(s) y responde a la solicitud del usuario."
+        instruction = (instruction + " " + extra_instruction) if instruction else extra_instruction
 
     args: ConverseApiRequest = {
         "inference_config": convert_dict_keys_to_camel_case(inference_config),
@@ -244,17 +333,18 @@ def compose_args_for_converse_api(
             "guardrailVersion": guardrail.guardrail_version,
             "trace": "enabled",
         }
-
         if stream:
-            # https://docs.aws.amazon.com/bedrock/latest/userguide/guardrails-streaming.html
             args["guardrailConfig"]["streamProcessingMode"] = "async"
+
+    safe_args = json.loads(json.dumps(args, default=lambda o: "<bytes>"))
+    logger.info("=" * 50)
+    logger.info("Payload Converse (sin bytes): %s", safe_args)
+    logger.info("=" * 50)
 
     return args
 
-
 def call_converse_api(args: ConverseApiRequest) -> ConverseApiResponse:
     client = get_bedrock_runtime_client()
-
     base_args = {
         "modelId": args["model_id"],
         "messages": args["messages"],
@@ -262,19 +352,33 @@ def call_converse_api(args: ConverseApiRequest) -> ConverseApiResponse:
         "system": args["system"],
         "additionalModelRequestFields": args["additional_model_request_fields"],
     }
-
     if "guardrailConfig" in args:
-        base_args["guardrailConfig"] = args["guardrailConfig"]  # type: ignore
+        base_args["guardrailConfig"] = args["guardrailConfig"]
+    
+    logger.info("Llamando a converse API...")
+    try:
+        resp = client.converse(**base_args)
+        try:
+            meta = resp.get("ResponseMetadata", {})
+            stop = resp.get("stopReason", "")
+            usage = resp.get("usage", {})
+            logger.info("[ConverseResp] HTTP=%s stopReason=%s usage=%s requestId=%s",
+                        meta.get("HTTPStatusCode"), stop, usage, meta.get("RequestId"))
+        except Exception:
+            logger.exception("[ConverseResp] No pude inspeccionar la respuesta")
+        return resp
+    except Exception as e:
+        logger.exception("[Converse] Error al llamar a converse: %s", e)
+        raise
 
-    return client.converse(**base_args)
-
-
+# ... El resto del archivo (calculate_price, get_model_id, etc.) se mantiene sin cambios ...
 def calculate_price(
     model: type_model_name,
     input_tokens: int,
     output_tokens: int,
     region: str = BEDROCK_REGION,
 ) -> float:
+    # ... (El código de esta función se mantiene igual)
     input_price = (
         BEDROCK_PRICING.get(region, {})
         .get(model, {})
@@ -285,12 +389,11 @@ def calculate_price(
         .get(model, {})
         .get("output", BEDROCK_PRICING["default"][model]["output"])
     )
-
     return input_price * input_tokens / 1000.0 + output_price * output_tokens / 1000.0
 
 
 def get_model_id(model: type_model_name) -> str:
-    # Ref: https://docs.aws.amazon.com/bedrock/latest/userguide/model-ids-arns.html
+    # ... (El código de esta función se mantiene igual)
     if model == "claude-v2":
         return "anthropic.claude-v2:1"
     elif model == "claude-instant-v1":
@@ -312,48 +415,32 @@ def get_model_id(model: type_model_name) -> str:
 
 
 def calculate_query_embedding(question: str) -> list[float]:
+    # ... (El código de esta función se mantiene igual)
     model_id = DEFAULT_EMBEDDING_CONFIG["model_id"]
-
-    # Currently only supports "cohere.embed-multilingual-v3"
     assert model_id == "cohere.embed-multilingual-v3"
-
     payload = json.dumps({"texts": [question], "input_type": "search_query"})
-    accept = "application/json"
-    content_type = "application/json"
-
     response = client.invoke_model(
-        accept=accept, contentType=content_type, body=payload, modelId=model_id
+        accept="application/json", contentType="application/json", body=payload, modelId=model_id
     )
     output = json.loads(response.get("body").read())
-    embedding = output.get("embeddings")[0]
-
-    return embedding
+    return output.get("embeddings")[0]
 
 
 def calculate_document_embeddings(documents: list[str]) -> list[list[float]]:
-    def _calculate_document_embeddings(documents: list[str]) -> list[list[float]]:
-        payload = json.dumps({"texts": documents, "input_type": "search_document"})
-        accept = "application/json"
-        content_type = "application/json"
-
+    # ... (El código de esta función se mantiene igual)
+    def _calculate_document_embeddings(docs: list[str]) -> list[list[float]]:
+        payload = json.dumps({"texts": docs, "input_type": "search_document"})
         response = client.invoke_model(
-            accept=accept, contentType=content_type, body=payload, modelId=model_id
+            accept="application/json", contentType="application/json", body=payload, modelId=model_id
         )
         output = json.loads(response.get("body").read())
-        embeddings = output.get("embeddings")
-
-        return embeddings
+        return output.get("embeddings")
 
     BATCH_SIZE = 10
     model_id = DEFAULT_EMBEDDING_CONFIG["model_id"]
-
-    # Currently only supports "cohere.embed-multilingual-v3"
     assert model_id == "cohere.embed-multilingual-v3"
-
-    embeddings = []
+    embeddings = [] 
     for i in range(0, len(documents), BATCH_SIZE):
-        # Split documents into batches to avoid exceeding the payload size limit
         batch = documents[i : i + BATCH_SIZE]
-        embeddings += _calculate_document_embeddings(batch)
-
+        embeddings.extend(_calculate_document_embeddings(batch))
     return embeddings

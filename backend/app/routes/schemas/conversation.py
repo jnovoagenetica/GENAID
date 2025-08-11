@@ -1,5 +1,7 @@
 import base64
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Optional, List
+from fastapi import UploadFile
+from pydantic import Field, root_validator, validator, BaseModel
 
 if TYPE_CHECKING:
     from app.repositories.models.conversation import (
@@ -11,7 +13,6 @@ if TYPE_CHECKING:
     )
 
 from app.routes.schemas.base import BaseSchema
-from pydantic import Field, root_validator, validator
 
 type_model_name = Literal[
     "claude-instant-v1",
@@ -27,7 +28,7 @@ type_model_name = Literal[
 
 
 class Content(BaseSchema):
-    content_type: Literal["text", "image", "attachment"] = Field(
+    content_type: Literal["text", "image", "textAttachment"] = Field(
         ..., description="Content type. Note that image is only available for claude 3."
     )
     media_type: str | None = Field(
@@ -54,9 +55,8 @@ class Content(BaseSchema):
         if content_type == "text" and not isinstance(v, str):
             raise ValueError("body must be str if `content_type` is `text`")
 
-        if content_type in ["image", "attachment"]:
+        if content_type in ["image", "textAttachment"]:
             try:
-                # Check if the body is a valid base64 string
                 base64.b64decode(v, validate=True)
             except Exception:
                 raise ValueError(
@@ -110,7 +110,7 @@ class AgentToolUseContent(BaseSchema):
 
 
 class AgentToolResultContent(BaseSchema):
-    json_: dict | None  # `json` is a reserved keyword on pydantic
+    json_: dict | None
     text: str | None
 
     @classmethod
@@ -151,7 +151,6 @@ class AgentContent(BaseSchema):
                 body=AgentToolResult.from_model(model.body),  # type: ignore[arg-type]
             )
         else:
-            # Should never reach here
             raise ValueError(f"Invalid content type: {model.content_type}")
 
 
@@ -233,3 +232,11 @@ class NewTitleInput(BaseSchema):
 
 class ProposedTitle(BaseSchema):
     title: str
+
+
+# ✅ NUEVO: Soporte para archivos adjuntos reales
+class ChatInputWithFiles(BaseModel):
+    conversation_id: str
+    message: dict
+    bot_id: Optional[str] = None
+    files: Optional[List[UploadFile]] = None

@@ -1,4 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+// frontend/src/pages/ChatPage.tsx
+
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import InputChatContent from '../components/InputChatContent';
 import useChat from '../hooks/useChat';
 import ChatMessage from '../components/ChatMessage';
@@ -10,22 +17,14 @@ import {
 } from 'react-icons/pi';
 import Button from '../components/Button';
 import { useTranslation } from 'react-i18next';
-// import useBot from '../hooks/useBot';
 import useConversation from '../hooks/useConversation';
-
-
-//import { copyBotUrl } from '../utils/BotUtils';
-//import { produce } from 'immer';
 import Alert from '../components/Alert';
 import useBotSummary from '../hooks/useBotSummary';
 import useModel from '../hooks/useModel';
 import { motion } from 'framer-motion';
 
-
-
 const ChatPage: React.FC = () => {
   const { t } = useTranslation();
-  // const navigate = useNavigate();
 
   const {
     postingMessage,
@@ -40,10 +39,24 @@ const ChatPage: React.FC = () => {
   } = useChat();
 
   const { getBotId } = useConversation();
-
   const { scrollToBottom, scrollToTop } = useScroll();
+  const { conversationId: paramConversationId, botId: paramBotId } =
+    useParams();
 
-  const { conversationId: paramConversationId, botId: paramBotId } = useParams();
+  // 1) Estado: de File | null → File[]
+  // 👈 CAMBIO: Ahora es un array para soportar múltiples archivos.
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+
+  // 3) Etiqueta resumida para la UI actual (muestra 1 nombre + “(+N)”)
+  // 👈 CAMBIO: Se crea una etiqueta para mostrar en la UI.
+  const attachedLabel = useMemo(() => {
+    if (attachedFiles.length === 0) return null;
+    const extra = attachedFiles.length - 1;
+    return extra > 0
+      ? `${attachedFiles[0].name} (+${extra})`
+      : attachedFiles[0].name;
+  }, [attachedFiles]);
+
   const botId = useMemo(() => {
     return paramBotId ?? getBotId(conversationId);
   }, [conversationId, getBotId, paramBotId]);
@@ -52,7 +65,6 @@ const ChatPage: React.FC = () => {
     data: bot,
     error: botError,
     isLoading: isLoadingBot,
-    //mutate: mutateBot,
   } = useBotSummary(botId ?? undefined);
 
   const [pageTitle, setPageTitle] = useState('');
@@ -87,8 +99,11 @@ const ChatPage: React.FC = () => {
     return botId !== null && !isAvailabilityBot && !isLoadingBot;
   }, [botId, isAvailabilityBot, isLoadingBot]);
 
+  // 7) Limpieza al cambiar de conversación
   useEffect(() => {
     setConversationId(paramConversationId ?? '');
+    // 👈 CAMBIO: Limpiar el array de archivos.
+    setAttachedFiles([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paramConversationId]);
 
@@ -101,16 +116,36 @@ const ChatPage: React.FC = () => {
       : undefined;
   }, [bot?.hasKnowledge, botId]);
 
+  // 2) onAttachDocument: acumular varios
+  // 👈 CAMBIO: Acumula archivos en el estado en lugar de reemplazarlo.
+  const onAttachDocument = (file: File) => {
+    setAttachedFiles((prev) => [...prev, file]);
+  };
+
+  // 4) onSend: enviar todos los PDFs y limpiar
+  // 👈 CAMBIO: Envía todos los archivos del array `attachedFiles`.
   const onSend = useCallback(
-    (content: string, base64EncodedImages?: string[]) => {
+    async (content: string, base64EncodedImages?: string[]) => {
+      const pdfFiles = attachedFiles;
+
       postChat({
         content,
         base64EncodedImages,
+        pdfFiles,
         bot: inputBotParams,
       });
+
+      // Limpiar todos los archivos tras el envío
+      setAttachedFiles([]);
     },
-    [inputBotParams, postChat]
+    [inputBotParams, postChat, attachedFiles] // Dependencia actualizada
   );
+
+  // 5) Remover adjuntos: limpiar todos (por ahora)
+  // 👈 CAMBIO: Elimina todos los PDFs a la vez.
+  const handleRemoveAttachedFile = () => {
+    setAttachedFiles([]);
+  };
 
   const onChangeCurrentMessageId = useCallback(
     (messageId: string) => {
@@ -151,55 +186,13 @@ const ChatPage: React.FC = () => {
     }
   }, [messages, scrollToBottom, scrollToTop]);
 
-  // const { updateMyBotStarred, updateSharedBotStarred } = useBot();
-
-  // const onClickStar = useCallback(() => {
-  //   if (!bot) {
-  //     return; 
-  //   }
-  //   const isStarred = !bot.isPinned;
-  //   mutateBot(
-  //     produce(bot, (draft) => {
-  //       draft.isPinned = isStarred;
-  //     }),
-  //     { 
-  //       revalidate: false, 
-  //     }
-  //   );
-  //   try {
-  //     if (bot.owned) {
-  //       updateMyBotStarred(bot.id, isStarred);
-  //     } else {
-  //       updateSharedBotStarred(bot.id, isStarred);
-  //     }
-  //   } finally {
-  //     mutateBot();
-  //   }
-  // }, [bot, mutateBot, updateMyBotStarred, updateSharedBotStarred]);
-
-  // const [copyLabel, setCopyLabel] = useState(t('bot.titleSubmenu.copyLink'));
-  // const onClickCopyUrl = useCallback(
-  //   (botId: string) => {
-  //     copyBotUrl(botId);
-  //     setCopyLabel(t('bot.titleSubmenu.copiedLink'));
-  //     setTimeout(() => {
-  //       setCopyLabel(t('bot.titleSubmenu.copyLink'));
-  //     }, 3000);
-  //   },
-  //   [t]
-  // );
-
-  // const onClickSyncError = useCallback(() => {
-  //   navigate(`/bot/edit/${bot?.id}`);
-  // }, [bot?.id, navigate]);
-
   const { disabledImageUpload } = useModel();
   const [dndMode, setDndMode] = useState(false);
   const onDragOver: React.DragEventHandler<HTMLDivElement> = useCallback(
     (e) => {
       if (!disabledImageUpload) {
         setDndMode(true);
-        }
+      }
       e.preventDefault();
     },
     [disabledImageUpload]
@@ -209,131 +202,72 @@ const ChatPage: React.FC = () => {
     e.preventDefault();
   }, []);
 
-  const isDesktop = window.innerWidth >= 1024; // o usar un hook si prefieres
+  const isDesktop = window.innerWidth >= 1024;
 
   return (
-    <div className="bg-[#D4EEF3] min-h-screen" onDragOver={onDragOver} onDrop={endDnd} onDragEnd={endDnd}>
+    <div
+      className="bg-[#D4EEF3] min-h-screen"
+      onDragOver={onDragOver}
+      onDrop={endDnd}
+      onDragEnd={endDnd}>
       <div className="relative h-14 w-full">
         <div className="flex w-full justify-between">
           <div className="p-2">
             <div className="mr-10 font-bold">{pageTitle}</div>
             <div className="text-xs font-thin text-dark-black ">
               {description}
-              </div>
-          </div>
-
-           {/* {isAvailabilityBot && (
-          <div className="absolute -top-1 right-0 flex h-full items-center">
-            <div className="h-full w-5 bg-gradient-to-r from-transparent to-aws-paper"></div>
-            <div className="flex items-center bg-aws-paper">
-              {bot?.owned && (
-                <StatusSyncBot
-                  syncStatus={bot.syncStatus}
-                  onClickError={onClickSyncError}
-                />
-              )}
-              <ButtonIcon onClick={onClickStar}>
-                {bot?.isPinned ? (
-                  <PiStarFill className="text-aws-aqua" />
-                ) : (
-                  <PiStar />
-                )}
-              </ButtonIcon>
-              <ButtonPopover className="mx-1" target="bottom-right">
-                {bot?.owned && (
-                  <PopoverItem
-                    onClick={() => {
-                      if (bot) {
-                        onClickBotEdit(bot.id);
-                      }
-                    }}>
-                    <PiPencilLine />
-                    {t('bot.titleSubmenu.edit')}
-                  </PopoverItem>
-                )}
-                {bot?.isPublic && (
-                  <PopoverItem
-                    onClick={() => {
-                      if (bot) {
-                        onClickCopyUrl(bot.id);
-                      }
-                    }}>
-                    <PiLink />
-                    {copyLabel}
-                  </PopoverItem>
-                )}
-              </ButtonPopover>
             </div>
           </div>
-        )} */}
         </div>
-       
-        
-        {/* {getPostedModel() && (
-        <div className="absolute right-2 top-10 text-xs text-dark-gray">
-          model: {getPostedModel()}
-        </div>
-      )} */}
-        
-        
       </div>
 
       <hr className="w-full border-t border-gray" />
 
-      {/* Contenedor de mensajes con scroll */}
       <div className="pb-52 lg:pb-40">
         {messages.length === 0 ? (
           <div className="relative flex w-full flex-col items-center">
-           {/* Animación del logo desde carpeta public */}
             <motion.div
               initial={false}
               animate={
                 messages.length === 0
                   ? {
-                    position: 'fixed',
-                    top: '50%',
-                    left: '50%',
-                    x: isDesktop ? '-45%' : '-40%',
-                    y: isDesktop ? '-80%' : '-90%',
-                }
-                : {
-                    position: 'fixed',
-                    top: 20,
-                    left: '50%',
-                    x: '-50%',
-                    y: 0,
-                }
+                      position: 'fixed',
+                      top: '50%',
+                      left: '50%',
+                      x: '-50%',
+                      y: isDesktop ? '-65%' : '-85%',
+                    }
+                  : {
+                      position: 'fixed',
+                      top: 20,
+                      left: '50%',
+                      x: '-50%',
+                      y: 0,
+                    }
               }
               transition={{ type: 'spring', stiffness: 100, damping: 20 }}
-              className="z-20 flex w-full justify-center pointer-events-none"
-            >
-              <img
-                src="/Gentica_Humana.png"
-                alt="Logo Genetica Humana"
-                className="w-full 
-                           max-w-[160px]
-                           sm:max-w-[200px]
-                           md:max-w-[300px]
-                           lg:max-w-[300px]
-                           xl:max-w-[450px]
-                           "
+              className="z-20 flex w-full justify-center pointer-events-none">
+              <div className="flex items-center justify-center space-x-2 sm:space-x-4">
+                <img
+                  src="/Gentica_Humana.png"
+                  alt="Logo Genetica Humana"
+                  className="w-auto h-24 sm:h-32 md:h-48 lg:h-64 xl:h-72"
                 />
+                <img
+                  src="/GeneticaLogoAid.png"
+                  alt="Logo GHene Aid"
+                  className="w-auto h-24 sm:h-32 md:h-48 lg:h-64 xl:h-72"
+                />
+              </div>
             </motion.div>
-
-            {/**Documentamos la linea donde aparece el texto en pantalla */}
-            {/**
-              <div className="absolute mx-3 my-20 flex items-center justify-center text-4xl font-bold text-gray">
-              {!MISTRAL_ENABLED ? t('app.name') : t('app.nameWithoutClaude')}
-            </div>
-             */}
           </div>
         ) : (
           messages.map((message, idx) => (
-            <div 
+            <div
               key={idx}
               className={`${
                 message.role === 'assistant' ? 'bg-[#A3D1E4]' : ''
-                }`}>
+              }`}>
               <ChatMessage
                 chatContent={message}
                 onChangeMessageId={onChangeCurrentMessageId}
@@ -350,60 +284,74 @@ const ChatPage: React.FC = () => {
               <PiWarningCircleFill className="mr-1 text-2xl" />
               {t('error.answerResponse')}
             </div>
-
             <Button
               className="mt-2 shadow"
               icon={<PiArrowsCounterClockwise />}
               outlined
               onClick={() => {
                 retryPostChat({
-                  bot: inputBotParams, 
+                  bot: inputBotParams,
                 });
               }}>
               {t('button.resend')}
             </Button>
           </div>
         )}
-        
 
         {postingMessage && (
-          <div className='flex justify-center items-center mb-6 text-sm text-gray-700 animate-pulse'>
+          <div className="flex justify-center items-center mb-6 text-sm text-gray-700 animate-pulse">
             🧠 Pensando...
           </div>
         )}
       </div>
 
-      {/* Barra inferior fija  */}
       <div className="absolute bottom-0 bg-[#D4EEF3] pt-4 pb-2 z-0 flex w-full flex-col items-center justify-center">
         {bot && bot.syncStatus !== 'SUCCEEDED' && (
           <div className="mb-8 w-1/2">
-            <Alert 
+            <Alert
               severity="warning"
               title={t('bot.alert.sync.incomplete.title')}>
               {t('bot.alert.sync.incomplete.body')}
             </Alert>
           </div>
         )}
-         <div className='mb-0 w-full flex justify-center'>
-        <InputChatContent
-          dndMode={dndMode}
-          disabledSend={postingMessage}
-          disabled={disabledInput}
-          placeholder={
-            disabledInput
-             ? t('bot.label.notAvailableBotInputMessage') 
-             : undefined
-          }
-          onSend={onSend}
-          onRegenerate={onRegenerate}
-        />
+        <div className="mb-0 w-full flex justify-center">
+          {/* 6) Props hacia InputChatContent: usa la etiqueta resumida */}
+          <InputChatContent
+            dndMode={dndMode}
+            disabledSend={postingMessage}
+            disabled={disabledInput}
+            placeholder={
+              disabledInput
+                ? t('bot.label.notAvailableBotInputMessage')
+                : undefined
+            }
+            onSend={onSend}
+            onRegenerate={onRegenerate}
+            // 👈 CAMBIO: Se pasa la nueva etiqueta resumida.
+            attachedFileName={attachedLabel}
+            onRemoveAttachedFile={handleRemoveAttachedFile}
+            onAttachDocument={onAttachDocument}
+          />
         </div>
         <div className="w-full px-4 flex flex-wrap items-center justify-center gap-2 sm:gap-4 text-xs sm:text-sm text-gray-700">
           <span>© Genética Humana E.U. 2025</span>
-          <img src="/Gentica_Humana.png" alt="Logo Genetica" className="h-5 sm:h-6 w-auto opacity-80" />
-          <img src="/GeneticaLogoAid.png" alt="Logo Genetica" className="h-5 sm:h-6 w-auto opacity-80" />
+          <img
+            src="/Gentica_Humana.png"
+            alt="Logo Genetica"
+            className="h-5 sm:h-6 w-auto opacity-80"
+          />
+          <img
+            src="/GeneticaLogoAid.png"
+            alt="Logo Genetica"
+            className="h-5 sm:h-6 w-auto opacity-80"
+          />
           <span>Powered by Norsoft S.A.S.</span>
-          <img src="/LogoNorSoft.png" alt="Logo NorSoft" className="h-5 sm:h-6 w-auto opacity-80" />
+          <img
+            src="/LogoNorSoft.png"
+            alt="Logo NorSoft"
+            className="h-5 sm:h-6 w-auto opacity-80"
+          />
         </div>
       </div>
     </div>

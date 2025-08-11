@@ -1,3 +1,16 @@
+# backend/app/routes/conversation.py
+
+from typing import Optional, List
+import json
+from fastapi import (
+    APIRouter,
+    Request,
+    UploadFile,
+    File,
+    Form,
+    HTTPException,
+)
+
 from app.repositories.conversation import (
     change_conversation_title,
     delete_conversation_by_id,
@@ -5,10 +18,11 @@ from app.repositories.conversation import (
     find_conversation_by_user_id,
     update_feedback,
 )
-from app.repositories.models.conversation import FeedbackModel
+from app.repositories.models.conversation import FeedbackModel, ContentModel
 from app.routes.schemas.conversation import (
     ChatInput,
     ChatOutput,
+    ChatInputWithFiles,
     Conversation,
     ConversationMetaOutput,
     FeedbackInput,
@@ -24,7 +38,9 @@ from app.usecases.chat import (
     propose_conversation_title,
 )
 from app.user import User
-from fastapi import APIRouter, Request
+
+import os
+import base64 # Importamos base64 a nivel de módulo
 
 router = APIRouter(tags=["conversation"])
 
@@ -36,9 +52,65 @@ def health():
 
 
 @router.post("/conversation", response_model=ChatOutput)
-def post_message(request: Request, chat_input: ChatInput):
-    """Send chat message"""
+async def post_message(
+    request: Request,
+    message: str = Form(...),
+    conversation_id: str = Form(...),
+    bot_id: Optional[str] = Form(None),
+    files: Optional[List[UploadFile]] = File(None),
+):
+    """Send chat message with optional files (PDFs, etc.)"""
     current_user: User = request.state.current_user
+
+    try:
+        message_dict = json.loads(message)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON in 'message' field")
+
+    # --- INICIO DEL CÓDIGO CORREGIDO Y ROBUSTO ---
+    pdf_contents = []
+    if files:
+        # Directorio para guardar archivos (si es para depuración)
+        UPLOADS_DIR = r"C:\uploads"
+        os.makedirs(UPLOADS_DIR, exist_ok=True)
+
+        for upload in files:
+            # Leemos el archivo UNA SOLA VEZ y guardamos los bytes
+            file_bytes = await upload.read()
+
+            # 1. Guardar en base64 para enviarlo como textAttachment
+            base64_data = base64.b64encode(file_bytes).decode("utf-8")
+            pdf_contents.append(
+                ContentModel(
+                    contentType="textAttachment",
+                    mediaType=upload.content_type,
+                    fileName=upload.filename,
+                    body=base64_data,
+                )
+            )
+
+            # 2. Guardar físicamente en C:\uploads (usando los mismos bytes)
+            local_path = os.path.join(UPLOADS_DIR, upload.filename)
+            with open(local_path, "wb") as f:
+                f.write(file_bytes)
+
+            print(f"[BACKEND] Archivo procesado y guardado: {upload.filename} → {local_path}")
+            print(f"[BACKEND] Tipo MIME: {upload.content_type} | Tamaño: {len(file_bytes)} bytes")
+
+        # 3. Extender el contenido del mensaje con los adjuntos procesados
+        if "content" in message_dict:
+            message_dict["content"].extend([c.dict() for c in pdf_contents])
+    else:
+        print("[BACKEND] No se recibieron archivos adjuntos")
+    # --- FIN DEL CÓDIGO CORREGIDO Y ROBUSTO ---
+
+    # Crea un esquema que encapsula el mensaje (ya modificado), ID de conversación, bot y archivos
+    chat_input = ChatInputWithFiles(
+        conversation_id=conversation_id,
+        message=message_dict,
+        bot_id=bot_id,
+        files=files,
+    )
 
     output = chat(user_id=current_user.id, chat_input=chat_input)
     return output
@@ -51,20 +123,17 @@ def post_message(request: Request, chat_input: ChatInput):
 def get_related_documents(
     request: Request, chat_input: ChatInput
 ) -> list[RelatedDocumentsOutput] | None:
-    """Get related documents
-    NOTE: POST method is used to avoid query string length limit.
-    If the bot prohibits displaying related documents, it will return `None`.
-    """
+    """Get related documents"""
     current_user: User = request.state.current_user
     output = fetch_related_documents(user_id=current_user.id, chat_input=chat_input)
     return output
 
 
+# ... (el resto de las rutas se mantienen igual)
 @router.get("/conversation/{conversation_id}", response_model=Conversation)
 def get_conversation(request: Request, conversation_id: str):
     """Get a conversation history"""
     current_user: User = request.state.current_user
-
     output = fetch_conversation(current_user.id, conversation_id)
     return output
 
@@ -73,19 +142,15 @@ def get_conversation(request: Request, conversation_id: str):
 def remove_conversation(request: Request, conversation_id: str):
     """Delete conversation"""
     current_user: User = request.state.current_user
-
     delete_conversation_by_id(current_user.id, conversation_id)
 
 
 @router.get("/conversations", response_model=list[ConversationMetaOutput])
-def get_all_conversations(
-    request: Request,
-):
+def get_all_conversations(request: Request):
     """Get all conversation metadata"""
     current_user: User = request.state.current_user
-
     conversations = find_conversation_by_user_id(current_user.id)
-    output = [
+    return [
         ConversationMetaOutput(
             id=conversation.id,
             title=conversation.title,
@@ -95,13 +160,10 @@ def get_all_conversations(
         )
         for conversation in conversations
     ]
-    return output
 
 
 @router.delete("/conversations")
-def remove_all_conversations(
-    request: Request,
-):
+def remove_all_conversations(request: Request):
     """Delete all conversations"""
     delete_conversation_by_user_id(request.state.current_user.id)
 
@@ -112,7 +174,6 @@ def patch_conversation_title(
 ):
     """Update conversation title"""
     current_user: User = request.state.current_user
-
     change_conversation_title(
         current_user.id, conversation_id, new_title_input.new_title
     )
@@ -124,7 +185,6 @@ def patch_conversation_title(
 def get_proposed_title(request: Request, conversation_id: str):
     """Suggest conversation title"""
     current_user: User = request.state.current_user
-
     title = propose_conversation_title(current_user.id, conversation_id)
     return ProposedTitle(title=title)
 
@@ -141,19 +201,18 @@ def put_feedback(
 ):
     """Send feedback."""
     current_user: User = request.state.current_user
-
     update_feedback(
         user_id=current_user.id,
         conversation_id=conversation_id,
         message_id=message_id,
         feedback=FeedbackModel(
             thumbs_up=feedback_input.thumbs_up,
-            category=feedback_input.category if feedback_input.category else "",
-            comment=feedback_input.comment if feedback_input.comment else "",
+            category=feedback_input.category or "",
+            comment=feedback_input.comment or "",
         ),
     )
     return FeedbackOutput(
         thumbs_up=feedback_input.thumbs_up,
-        category=feedback_input.category if feedback_input.category else "",
-        comment=feedback_input.comment if feedback_input.comment else "",
+        category=feedback_input.category or "",
+        comment=feedback_input.comment or "",
     )
