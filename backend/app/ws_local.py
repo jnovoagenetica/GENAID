@@ -43,7 +43,7 @@ async def ws_endpoint(ws: WebSocket):
     await ws.accept()
     cid = id(ws)
     _sessions[cid] = []
-    log.info("[WS-LOCAL] connected cid=%s", cid)
+    # log.info("[WS-LOCAL] connected cid=%s", cid)
 
     try:
         while True:
@@ -66,12 +66,12 @@ async def ws_endpoint(ws: WebSocket):
                         _user_ids[cid] = decoded["sub"]
                     else:
                         _user_ids[cid] = "local-user"
-                        log.warning("[WS-LOCAL] Sin token; usando usuario local")
+                        # log.warning("[WS-LOCAL] Sin token; usando usuario local")
                 except Exception as e:
                     _user_ids[cid] = "local-user"
-                    log.warning("[WS-LOCAL] Token inválido (%s); usando usuario local", e)
+                    # log.warning("[WS-LOCAL] Token inválido (%s); usando usuario local", e)
                 await ws.send_text("Session started.")
-                log.info("[WS-LOCAL] START ok cid=%s user=%s", cid, _user_ids[cid])
+                # log.info("[WS-LOCAL] START ok cid=%s user=%s", cid, _user_ids[cid])
 
             elif step == "CHUNK":
                 _sessions[cid].append(data.get("part", ""))
@@ -79,7 +79,7 @@ async def ws_endpoint(ws: WebSocket):
 
             elif step == "END":
                 full_message = "".join(_sessions.get(cid, []))
-                log.info("[WS-LOCAL] END len=%s", len(full_message))
+                # log.info("[WS-LOCAL] END len=%s", len(full_message))
 
                 # ---------- NUEVO: extraer adjuntos raíz y de content ----------
                 uploaded_files: List[Dict[str, Any]] = []
@@ -109,15 +109,15 @@ async def ws_endpoint(ws: WebSocket):
                     for c in contents:
                         t = c.get("contentType")
                         by_type[t] = by_type.get(t, 0) + 1
-                    log.info("[WS-LOCAL] contentType breakdown: %s", by_type)
+                    # log.info("[WS-LOCAL] contentType breakdown: %s", by_type)
 
                     pdfs = [c for c in contents if c.get("contentType") == "textAttachment"]
                     for i, a in enumerate(pdfs, 1):
                         b64 = a.get("body") or ""
                         fname = a.get("fileName") or "archivo.pdf"
                         mime = a.get("mimeType") or a.get("mediaType") or "application/pdf"
-                        log.info("[WS-LOCAL] PDF[%d] fileName=%s mime=%s b64_len=%s",
-                                 i, fname, mime, (len(b64) if isinstance(b64, str) else "bytes"))
+                        # log.info("[WS-LOCAL] PDF[%d] fileName=%s mime=%s b64_len=%s",
+                        #          i, fname, mime, (len(b64) if isinstance(b64, str) else "bytes"))
 
                         # evitar duplicado simple por (name, mime)
                         key = (fname, mime)
@@ -129,9 +129,10 @@ async def ws_endpoint(ws: WebSocket):
                                 "base64": b64,
                             })
 
-                    log.info("[WS-LOCAL] attachments(root+content)=%d", len(uploaded_files))
+                    # log.info("[WS-LOCAL] attachments(root+content)=%d", len(uploaded_files))
                 except Exception:
-                    log.exception("[WS-LOCAL] No se pudo inspeccionar el payload JSON")
+                    # log.exception("[WS-LOCAL] No se pudo inspeccionar el payload JSON")
+                    pass
                 # ---------- FIN NUEVO ----------
 
                 # Parse a ChatInput (tu modelo pydantic)
@@ -143,7 +144,7 @@ async def ws_endpoint(ws: WebSocket):
 
                 # Guardar ya la conversación con el mensaje del usuario
                 store_conversation(user_id, conversation)
-                log.info("[WS-LOCAL] Conversación %s guardada inicial (para proposed-title)", conversation.id)
+                # log.info("[WS-LOCAL] Conversación %s guardada inicial (para proposed-title)", conversation.id)
 
                 message_map = conversation.message_map
                 messages = trace_to_root(node_id=user_msg_id, message_map=message_map)
@@ -160,16 +161,18 @@ async def ws_endpoint(ws: WebSocket):
                             "source": {"bytes": base64.b64decode(b64)},
                         })
                     except Exception as e:
-                        log.warning("[WS-LOCAL] base64 inválido para %s: %s", f.get("name"), e)
+                        # log.warning("[WS-LOCAL] base64 inválido para %s: %s", f.get("name"), e)
+                        pass
 
                 # 🔎 LOG #1: verificar lo que realmente le vamos a pasar a Bedrock
                 try:
                     sizes = [len(a["source"]["bytes"]) for a in attachments]
                     fmts  = [a["format"] for a in attachments]
-                    log.info("[WS-LOCAL] Enviando a Bedrock con %d attachments. tamaños=%s formatos=%s",
-                             len(attachments), sizes, fmts)
+                    # log.info("[WS-LOCAL] Enviando a Bedrock con %d attachments. tamaños=%s formatos=%s",
+                    #          len(attachments), sizes, fmts)
                 except Exception:
-                    log.exception("[WS-LOCAL] No pude inspeccionar attachments")
+                    # log.exception("[WS-LOCAL] No pude inspeccionar attachments")
+                    pass
 
                 args = compose_args_for_converse_api(
                     messages=messages,
@@ -190,18 +193,19 @@ async def ws_endpoint(ws: WebSocket):
                         has_atts = bool(args.get("attachments"))
                         count    = len(args.get("attachments") or [])
                         sizes2   = [len(a["source"]["bytes"]) for a in (args.get("attachments") or [])]
-                        log.info("[WS-LOCAL] Args para Converse: keys=%s  has_attachments=%s  count=%d  sizes=%s",
-                                 list(args.keys()), has_atts, count, sizes2)
+                        # log.info("[WS-LOCAL] Args para Converse: keys=%s  has_attachments=%s  count=%d  sizes=%s",
+                        #          list(args.keys()), has_atts, count, sizes2)
                     else:
                         # por si args es un objeto/TypedDict: intenta acceder con getattr
                         atts = getattr(args, "attachments", None)
                         has_atts = bool(atts)
                         count    = len(atts or [])
                         sizes2   = [len(a["source"]["bytes"]) for a in (atts or [])]
-                        log.info("[WS-LOCAL] Args(Objeto) para Converse: has_attachments=%s  count=%d  sizes=%s",
-                                 has_atts, count, sizes2)
+                        # log.info("[WS-LOCAL] Args(Objeto) para Converse: has_attachments=%s  count=%d  sizes=%s",
+                        #          has_atts, count, sizes2)
                 except Exception:
-                    log.exception("[WS-LOCAL] No pude inspeccionar args devueltos")
+                    # log.exception("[WS-LOCAL] No pude inspeccionar args devueltos")
+                    pass
 
                 def _on_stream(token: str):
                     payload = json.dumps({"status":"STREAMING","completion": token or ""})
@@ -259,10 +263,10 @@ async def ws_endpoint(ws: WebSocket):
                         on_stop=_on_stop,
                     )
                     # --- CAMBIO: Añadido log antes y después de la llamada a Bedrock ---
-                    log.info("[WS-LOCAL] Llamando a handler.run() para Bedrock stream...")
+                    # log.info("[WS-LOCAL] Llamando a handler.run() para Bedrock stream...")
                     for _ in handler.run(args):
                         pass
-                    log.info("[WS-LOCAL] handler.run() completado OK.")
+                    # log.info("[WS-LOCAL] handler.run() completado OK.")
 
                 await anyio.to_thread.run_sync(_runner)
 
@@ -270,7 +274,8 @@ async def ws_endpoint(ws: WebSocket):
                 ...
 
     except WebSocketDisconnect:
-        log.info("[WS-LOCAL] disconnected cid=%s", cid)
+        # log.info("[WS-LOCAL] disconnected cid=%s", cid)
+        pass
     finally:
         _sessions.pop(cid, None)
         _user_ids.pop(cid, None)
