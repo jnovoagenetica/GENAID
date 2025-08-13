@@ -6,8 +6,8 @@ import boto3
 DDB_ENDPOINT_URL = os.environ.get("DDB_ENDPOINT_URL")
 TABLE_NAME = os.environ.get("TABLE_NAME", "")
 ACCOUNT = os.environ.get("ACCOUNT", "")
-REGION = os.environ.get("REGION", "ap-northeast-1")
-TABLE_ACCESS_ROLE_ARN = os.environ.get("TABLE_ACCESS_ROLE_ARN", "")
+REGION = os.environ.get("REGION", "us-east-1")  # antes: "ap-northeast-1"
+TABLE_ACCESS_ROLE_ARN = (os.environ.get("TABLE_ACCESS_ROLE_ARN", "") or "").strip()
 TRANSACTION_BATCH_SIZE = 25
 
 
@@ -51,9 +51,17 @@ def decompose_bot_alias_id(composed_alias_id: str):
 
 
 def _get_aws_resource(service_name, user_id=None):
-    """Get AWS resource with optional row-level access control for DynamoDB.
+    """
+    Get AWS resource with optional row-level access control for DynamoDB.
+
+    - En local (sin AWS_EXECUTION_ENV), usa DDB local si DDB_ENDPOINT_URL está definido.
+    - En ECS/Lambda:
+        * Si TABLE_ACCESS_ROLE_ARN viene definido (no vacío), asume ese rol con una policy
+          (opcionalmente con Condition LeadingKeys cuando user_id está presente).
+        * Si NO hay TABLE_ACCESS_ROLE_ARN, usa el Task Role por defecto (recomendado).
     Ref: https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_examples_dynamodb_items.html
     """
+    # --- Entorno local (por ejemplo, desarrollo) ---
     if "AWS_EXECUTION_ENV" not in os.environ:
         if DDB_ENDPOINT_URL:
             return boto3.resource(
@@ -66,6 +74,12 @@ def _get_aws_resource(service_name, user_id=None):
         else:
             return boto3.resource(service_name, region_name=REGION)
 
+    # --- Entorno AWS (ECS/Lambda) ---
+    # Si NO queremos asumir rol (opción recomendada): usar Task Role directamente
+    if not TABLE_ACCESS_ROLE_ARN:
+        return boto3.resource(service_name, region_name=REGION)
+
+    # Si sí viene un Role ARN: construir policy (con LeadingKeys si tenemos user_id)
     policy_document = {
         "Statement": [
             {
@@ -96,7 +110,7 @@ def _get_aws_resource(service_name, user_id=None):
             "ForAllValues:StringLike": {"dynamodb:LeadingKeys": [f"{user_id}*"]}
         }
 
-    sts_client = boto3.client("sts")
+    sts_client = boto3.client("sts", region_name=REGION)
     assumed_role_object = sts_client.assume_role(
         RoleArn=TABLE_ACCESS_ROLE_ARN,
         RoleSessionName="DynamoDBSession",
@@ -107,6 +121,7 @@ def _get_aws_resource(service_name, user_id=None):
         aws_access_key_id=credentials["AccessKeyId"],
         aws_secret_access_key=credentials["SecretAccessKey"],
         aws_session_token=credentials["SessionToken"],
+        region_name=REGION,
     )
     return session.resource(service_name, region_name=REGION)
 
