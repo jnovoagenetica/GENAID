@@ -75,13 +75,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---------- Middleware #1: asegurar usuario anónimo ----------
-# Lo ponemos ANTES de include_router(...) y ANTES del middleware de auth.
-# Garantiza que siempre exista request.state.current_user.
+# ---------- Middleware #1: asegurar usuario anónimo SOLO si NO hay token ----------
+# Lo ponemos ANTES de include_router(...) y ANTES del middleware de auth real.
+# Si llega Authorization, NO seteamos nada aquí; dejamos que el middleware de auth lo maneje.
 @app.middleware("http")
 async def ensure_current_user_anon(request: Request, call_next):
+    # Si viene un token, no tocar; que lo procese el middleware de auth real
+    if request.headers.get("authorization"):
+        return await call_next(request)
+
+    # Si no hay token y nadie puso usuario aún, usa 'anon'
     if not hasattr(request.state, "current_user"):
-        # ⚠️ No usamos User.anon() para evitar excepciones: creamos el usuario explícitamente.
         request.state.current_user = User(id="anon", name="Anonymous", groups=[])
     return await call_next(request)
 
@@ -144,7 +148,7 @@ async def add_current_user_to_request(request: Request, call_next):
                     token = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token_str)
                     request.state.current_user = get_current_user(token)
                 except Exception:
-                    # Si hay problema con el token, mantenemos el anon set por el middleware anterior
+                    # Si hay problema con el token, mantenemos lo que haya (anon del middleware #1)
                     pass
         else:
             request.state.current_user = User(
@@ -163,7 +167,7 @@ async def add_current_user_to_request(request: Request, call_next):
             except Exception:
                 request.state.current_user = User(id="test_user", name="test_user", groups=[])
         else:
-            # Sin token: usuario de prueba (sobrescribe anon para que lo veas claro en local)
+            # Sin token: usuario de prueba en local
             request.state.current_user = User(id="test_user", name="test_user", groups=[])
 
     response = await call_next(request)
