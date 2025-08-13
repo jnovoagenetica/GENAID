@@ -31,10 +31,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials
 
-# NO duplicamos Request desde starlette
 from starlette.responses import Response
-from pydantic import ValidationError  # <-- faltaba este import
-
+from pydantic import ValidationError  # <-- import necesario
 
 # ------------------ Config básica ------------------
 
@@ -63,6 +61,11 @@ app = FastAPI(
     title=title,
 )
 
+# --- Endpoint de salud para el ALB (200 OK siempre) ---
+@app.get("/health", tags=["admin"])
+def health():
+    return {"status": "ok"}
+
 # --- CORS ---
 app.add_middleware(
     CORSMiddleware,
@@ -72,7 +75,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---------- (NUEVO) Middleware #1: asegurar usuario anónimo ----------
+# ---------- Middleware #1: asegurar usuario anónimo ----------
 # Lo ponemos ANTES de include_router(...) y ANTES del middleware de auth.
 # Garantiza que siempre exista request.state.current_user.
 @app.middleware("http")
