@@ -40,7 +40,7 @@ from app.usecases.chat import (
 from app.user import User
 
 import os
-import base64 # Importamos base64 a nivel de módulo
+import base64  # Importamos base64 a nivel de módulo
 
 router = APIRouter(tags=["conversation"])
 
@@ -112,7 +112,9 @@ async def post_message(
         files=files,
     )
 
-    output = chat(user_id=current_user.id, chat_input=chat_input)
+    # **** CORRECCIÓN CLAVE: await a la función async para no devolver un coroutine ****
+    output = await chat(user_id=current_user.id, chat_input=chat_input)
+
     return output
 
 
@@ -129,7 +131,6 @@ def get_related_documents(
     return output
 
 
-# ... (el resto de las rutas se mantienen igual)
 @router.get("/conversation/{conversation_id}", response_model=Conversation)
 def get_conversation(request: Request, conversation_id: str):
     """Get a conversation history"""
