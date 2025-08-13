@@ -81,7 +81,8 @@ app.add_middleware(
 @app.middleware("http")
 async def ensure_current_user_anon(request: Request, call_next):
     if not hasattr(request.state, "current_user"):
-        request.state.current_user = User.anon()
+        # ⚠️ No usamos User.anon() para evitar excepciones: creamos el usuario explícitamente.
+        request.state.current_user = User(id="anon", name="Anonymous", groups=[])
     return await call_next(request)
 
 # ------------------ Routers ------------------
