@@ -33,6 +33,8 @@ from fastapi.security import HTTPAuthorizationCredentials
 
 # NO duplicamos Request desde starlette
 from starlette.responses import Response
+from pydantic import ValidationError  # <-- faltaba este import
+
 
 # ------------------ Config básica ------------------
 
