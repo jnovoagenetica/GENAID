@@ -22,7 +22,7 @@ from app.repositories.models.conversation import FeedbackModel, ContentModel
 from app.routes.schemas.conversation import (
     ChatInput,
     ChatOutput,
-    ChatInputWithFiles,
+    ChatInputWithFiles,   # lo dejamos importado por compatibilidad, pero no lo usamos aquí
     Conversation,
     ConversationMetaOutput,
     FeedbackInput,
@@ -68,17 +68,10 @@ async def post_message(
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON in 'message' field")
 
-    # 2) Convertir a objeto Pydantic para que 'chat_input.message' NO sea dict
-    #    (esto habilita el acceso por atributos como .model, .content, etc.)
-    try:
-        message_obj = ChatInput(**message_dict)
-    except Exception as e:
-        raise HTTPException(status_code=422, detail=f"Invalid message schema: {e}")
-
-    # 3) Procesar archivos adjuntos (si los hay) -> generar ContentModel y añadirlos
+    # 2) Procesar archivos adjuntos (si los hay) -> generar ContentModel y añadirlos
     pdf_contents: list[ContentModel] = []
     if files:
-        # Directorio para guardar archivos (si es para depuración)
+        # Directorio para guardar archivos (si es para depuración local)
         UPLOADS_DIR = r"C:\uploads"
         os.makedirs(UPLOADS_DIR, exist_ok=True)
 
@@ -86,7 +79,7 @@ async def post_message(
             # Leemos el archivo UNA SOLA VEZ y guardamos los bytes
             file_bytes = await upload.read()
 
-            # 3.1 Guardar en base64 para enviarlo como textAttachment
+            # 2.1 Guardar en base64 para enviarlo como textAttachment
             base64_data = base64.b64encode(file_bytes).decode("utf-8")
             pdf_contents.append(
                 ContentModel(
@@ -97,7 +90,7 @@ async def post_message(
                 )
             )
 
-            # 3.2 Guardar físicamente (opcional, para debug local)
+            # 2.2 Guardar físicamente (opcional, para debug)
             local_path = os.path.join(UPLOADS_DIR, upload.filename)
             with open(local_path, "wb") as f:
                 f.write(file_bytes)
@@ -105,21 +98,27 @@ async def post_message(
             print(f"[BACKEND] Archivo procesado y guardado: {upload.filename} → {local_path}")
             print(f"[BACKEND] Tipo MIME: {upload.content_type} | Tamaño: {len(file_bytes)} bytes")
 
-        # 3.3 Añadir adjuntos al contenido del mensaje como ContentModel (no dicts)
-        if hasattr(message_obj, "content") and isinstance(message_obj.content, list):
-            message_obj.content.extend(pdf_contents)
+        # 2.3 Añadir adjuntos al contenido del mensaje (como dicts)
+        if "content" in message_dict and isinstance(message_dict["content"], list):
+            message_dict["content"].extend([c.dict() for c in pdf_contents])
         else:
-            message_obj.content = pdf_contents  # fallback si venía vacío o None
+            message_dict["content"] = [c.dict() for c in pdf_contents]
     else:
         print("[BACKEND] No se recibieron archivos adjuntos")
 
-    # 4) Construir el ChatInputWithFiles con el objeto tipado
-    chat_input = ChatInputWithFiles(
-        conversation_id=conversation_id,
-        message=message_obj,  # <-- objeto Pydantic, NO dict
-        bot_id=bot_id,
-        files=files,
-    )
+    # 3) Construir el payload que espera ChatInput (camelCase)
+    payload = {
+        "conversationId": conversation_id,
+        "message": message_dict,   # Pydantic debe convertirlo al tipo interno correcto
+    }
+    if bot_id is not None:
+        payload["botId"] = bot_id
+
+    # 4) Materializar ChatInput (ya con conversationId y message)
+    try:
+        chat_input = ChatInput(**payload)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Invalid message schema: {e}")
 
     # 5) IMPORTANTÍSIMO: await a la función async
     output = await chat(user_id=current_user.id, chat_input=chat_input)
