@@ -1,12 +1,14 @@
 # --- INICIO DEL ARCHIVO ---
 
 # 1) Cargar .env ANTES de todo
+from mangum import Mangum
+import os
 from dotenv import load_dotenv
-load_dotenv(dotenv_path=".env.local")
+if not os.environ.get("AWS_EXECUTION_ENV"):
+    load_dotenv(dotenv_path=".env.local")
 
 # 2) Imports
 import logging
-import os
 import traceback
 from typing import Callable
 
@@ -37,14 +39,14 @@ from pydantic import ValidationError  # <-- import necesario
 # ------------------ Config básica ------------------
 
 CORS_ALLOW_ORIGINS = os.environ.get("CORS_ALLOW_ORIGINS", "*")
-PUBLISHED_API_ID = os.environ.get("PUBLISHED_API_ID", None)
+PUBLISHED_API_ID = (os.getenv("PUBLISHED_API_ID") or "").strip() or None
 
-is_published_api = PUBLISHED_API_ID is not None
+IS_PUBLISHED_API = bool(PUBLISHED_API_ID)
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-if not is_published_api:
+if not IS_PUBLISHED_API:
     openapi_tags = [
         {"name": "conversation", "description": "Conversation API"},
         {"name": "bot", "description": "Bot API"},
@@ -81,7 +83,7 @@ app.add_middleware(
 @app.middleware("http")
 async def ensure_current_user_anon(request: Request, call_next):
     # Si viene un token, no tocar; que lo procese el middleware de auth real
-    if request.headers.get("authorization"):
+    if request.headers.get("Authorization"):
         return await call_next(request)
 
     # Si no hay token y nadie puso usuario aún, usa 'anon'
@@ -91,12 +93,13 @@ async def ensure_current_user_anon(request: Request, call_next):
 
 # ------------------ Routers ------------------
 
-if not is_published_api:
+if not IS_PUBLISHED_API:
     app.include_router(conversation_router)
     app.include_router(bot_router)
     app.include_router(api_publication_router)
     app.include_router(admin_router)
-    app.include_router(ws_local_router)  # WebSocket local
+    if not is_running_on_lambda():
+        app.include_router(ws_local_router)  # WebSocket local
 else:
     app.include_router(published_api_router)
 
@@ -140,7 +143,7 @@ app.add_exception_handler(Exception, error_handler_factory(500))
 async def add_current_user_to_request(request: Request, call_next):
     if is_running_on_lambda():
         # Producción en Lambda / ECS detrás de ALB
-        if not is_published_api:
+        if not IS_PUBLISHED_API:
             authorization = request.headers.get("Authorization")
             if authorization:
                 try:
@@ -188,4 +191,20 @@ async def add_log_requests(request: Request, call_next):
 
     response = await call_next(request)
     return response
+
+from mangum import Mangum
+import os
+
+raw_base = (os.getenv("API_GATEWAY_BASE_PATH") or "").strip()
+# Si viene "/default/geneaid-backend-v5", lo convertimos a "/geneaid-backend-v5"
+if raw_base.startswith("/default/"):
+    base_path = raw_base[len("/default"):]  # -> "/geneaid-backend-v5"
+else:
+    base_path = raw_base
+
+kwargs = {}
+if base_path:
+    kwargs["api_gateway_base_path"] = base_path
+
+handler = Mangum(app, **kwargs)
 # --- FIN DEL ARCHIVO ---
