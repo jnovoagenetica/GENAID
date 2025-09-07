@@ -10,45 +10,13 @@ const api = axios.create({
 
 // // HTTP Request Preprocessing
 api.interceptors.request.use(async (config) => {
-  // Helpers para trabajar con headers (soporta AxiosHeaders u objeto plano)
-  const setHeader = (k: string, v: string) => {
-    const h = config.headers as any;
-    if (!h) {
-      config.headers = { [k]: v } as any;
-      return;
-    }
-    if (typeof h.set === 'function') h.set(k, v);
-    else h[k] = v;
-  };
-  const deleteHeader = (k: string) => {
-    const h = config.headers as any;
-    if (!h) return;
-    if (typeof h.delete === 'function') h.delete(k);
-    else delete h[k];
-  };
-
-  // Auth (no fallar si no hay sesión)
-  const user = await Auth.currentAuthenticatedUser().catch(() => null);
+  // If Authenticated, append ID Token to Request Header
+  const user = await Auth.currentAuthenticatedUser();
   if (user) {
     const token = (await Auth.currentSession()).getIdToken().getJwtToken();
-    setHeader('Authorization', `Bearer ${token}`);
+    config.headers['Authorization'] = 'Bearer ' + token;
   }
-
-  const method = (config.method || '').toLowerCase();
-
-  // 1) Evitar body en métodos sin cuerpo (DELETE/GET/HEAD)
-  if ((method === 'delete' || method === 'get' || method === 'head') && 'data' in config) {
-    // Garantizamos que no salga payload
-    // @ts-ignore
-    delete config.data;
-  }
-
-  // 2) Content-Type solo cuando hay cuerpo (POST/PUT/PATCH)
-  if (method === 'post' || method === 'put' || method === 'patch') {
-    setHeader('Content-Type', 'application/json');
-  } else {
-    deleteHeader('Content-Type');
-  }
+  config.headers['Content-Type'] = 'application/json';
 
   return config;
 });

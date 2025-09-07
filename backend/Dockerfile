@@ -1,26 +1,20 @@
-FROM python:3.11-slim
+FROM public.ecr.aws/docker/library/python:3.11.6-slim-bookworm
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+# (Quitar la línea del lambda-adapter)
 
-WORKDIR /app
+WORKDIR /app  # opcional, más estándar; si prefieres, puedes dejar /backend
+COPY ./pyproject.toml ./poetry.lock ./
 
-# --- Proxies solo durante el build (si los usas) ---
-ARG HTTP_PROXY
-ARG HTTPS_PROXY
-ARG NO_PROXY
-ENV  http_proxy=${HTTP_PROXY} \
-     https_proxy=${HTTPS_PROXY} \
-     no_proxy=${NO_PROXY}
-
-# Dependencias de Python
-COPY requirements.txt .
+ENV POETRY_REQUESTS_TIMEOUT=10800
 RUN python -m pip install --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install poetry --no-cache-dir && \
+    poetry config virtualenvs.create false && \
+    poetry install --no-interaction --no-ansi && \
+    poetry cache clear --all pypi
 
-# Código
+# Copia tu código
 COPY . .
 
-EXPOSE 8000
-CMD ["uvicorn","app.main:app","--host","0.0.0.0","--port","8000"]
+ENV PORT=8000
+EXPOSE ${PORT}
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
