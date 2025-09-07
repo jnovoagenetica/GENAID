@@ -24,7 +24,8 @@ const useBotApi = () => {
       req: GetBotsRequest,
       refreshIntervalFunction?: (data?: GetBotsResponse) => number
     ) => {
-      return http.get<GetBotsResponse>(['bot', req], {
+      // IMPORTANTE: usar /bots (no /bot) y dejar que SWR pase los params (?kind, ?limit)
+      return http.get<GetBotsResponse>(['bots', req], {
         refreshInterval: refreshIntervalFunction,
       });
     },

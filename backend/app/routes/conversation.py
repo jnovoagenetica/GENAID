@@ -1,6 +1,6 @@
 # backend/app/routes/conversation.py
 
-from typing import Optional, List
+from typing import Optional, List, Union
 import json
 from fastapi import (
     APIRouter,
@@ -18,7 +18,7 @@ from app.repositories.conversation import (
     find_conversation_by_user_id,
     update_feedback,
 )
-from app.repositories.models.conversation import FeedbackModel, ContentModel
+from app.repositories.models.conversation import FeedbackModel
 from app.routes.schemas.conversation import (
     ChatInput,
     ChatOutput,
@@ -57,7 +57,7 @@ async def post_message(
     message: str = Form(...),
     conversation_id: str = Form(...),
     bot_id: Optional[str] = Form(None),
-    files: Optional[List[UploadFile]] = File(None),
+    files: Optional[Union[UploadFile, List[UploadFile]]] = File(None, alias="files"),
 ):
     """Send chat message with optional files (PDFs, etc.)"""
     current_user: User = request.state.current_user
@@ -77,35 +77,52 @@ async def post_message(
         message_dict["content"] = []
 
     # 3) Procesar adjuntos (si existen)
-    pdf_contents: list[ContentModel] = []
-    if files:
-        UPLOADS_DIR = r"C:\uploads"  # opcional, para depurar local
+    attachments: list[dict] = []
+
+    # Normaliza 'files' a lista
+    file_list: List[UploadFile] = []
+    if isinstance(files, list):
+        file_list = files
+    elif files is not None:
+        file_list = [files]
+
+    # Extra: también acepta 'files[]'
+    if not file_list:
+        form = await request.form()
+        for f in form.getlist("files[]"):
+            if isinstance(f, UploadFile):
+                file_list.append(f)
+
+    if file_list:
+        UPLOADS_DIR = "/tmp" if os.environ.get("AWS_EXECUTION_ENV") else r"C:\uploads"
         os.makedirs(UPLOADS_DIR, exist_ok=True)
 
-        for upload in files:
+        for upload in file_list:
             file_bytes = await upload.read()
-
             base64_data = base64.b64encode(file_bytes).decode("utf-8")
-            pdf_contents.append(
-                ContentModel(
-                    contentType="textAttachment",
-                    mediaType=upload.content_type,
-                    fileName=upload.filename,
-                    body=base64_data,
-                )
-            )
 
-            # Guardado local (debug)
-            local_path = os.path.join(UPLOADS_DIR, upload.filename)
-            with open(local_path, "wb") as f:
-                f.write(file_bytes)
+            # 🟢 Construye en camelCase para que lo acepte ChatInput
+            attachments.append({
+                "contentType": "textAttachment",
+                "mediaType": upload.content_type or "application/pdf",
+                "fileName": upload.filename or "file.pdf",
+                "body": base64_data,
+            })
+
+            try:
+                with open(os.path.join(UPLOADS_DIR, upload.filename), "wb") as f:
+                    f.write(file_bytes)
+            except Exception:
+                pass
 
             print(f"[BACKEND] Archivo procesado: {upload.filename} ({upload.content_type}, {len(file_bytes)} bytes)")
-
-        # Añadir adjuntos al contenido del mensaje
-        message_dict["content"].extend([c.dict() for c in pdf_contents])
     else:
         print("[BACKEND] No se recibieron archivos adjuntos")
+
+    # Añade los adjuntos al mensaje
+    if attachments:
+        message_dict["content"].extend(attachments)
+
 
     # 4) Construir payload en camelCase para ChatInput
     payload = {

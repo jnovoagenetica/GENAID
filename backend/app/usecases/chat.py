@@ -61,6 +61,39 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
+# Helpers para limpiar/decodificar sin romper
+def _clean(s):
+    if not s:
+        return ""
+    try:
+        return re.sub(r"\s+", " ", s).strip()
+    except Exception as e:
+        logger.warning("Clean failed: %s", e)
+        return ""
+
+def _b64(s):
+    if not s:
+        return b""
+    try:
+        return base64.b64decode(s, validate=False)
+    except Exception as e:
+        logger.warning("b64 decode failed: %s", e)
+        return b""
+
+def _pdf_to_text(pdf_bytes: bytes) -> str:
+    if not pdf_bytes:
+        return ""
+    try:
+        out = []
+        with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+            for page in doc:
+                out.append(page.get_text("text") or "")
+        return "\n".join(out) or ""
+    except Exception as e:
+        logger.warning("PDF extract failed: %s", e)
+        return ""
+
+
 def _convert_to_valid_file_name(filename: str) -> str:
     """Remueve caracteres no válidos de un nombre de archivo."""
     return re.sub(r'[^\w\._-]', '_', filename)
@@ -346,6 +379,60 @@ async def chat(user_id: str, chat_input: ChatInputWithFiles) -> ChatOutput:
                 message_map = conversation_with_context.message_map
 
         messages = trace_to_root(node_id=user_msg_id, message_map=message_map)
+
+        # --- Normaliza adjuntos: convertir textAttachment -> texto plano ---
+        for idx, m in enumerate(messages):
+            new_contents = []
+            for c in m.content:
+                ct = (getattr(c, "content_type", None) or "").lower()
+                mt = (getattr(c, "media_type", None) or "")
+
+                if ct == "text":
+                    txt = _clean(c.body if isinstance(c.body, str) else "")
+                    if txt:
+                        new_contents.append(
+                            ContentModel(content_type="text", media_type=None, body=txt, file_name=None)
+                        )
+
+                elif ct == "textattachment":
+                    blob = _b64(c.body if isinstance(c.body, str) else "")
+                    txt = ""
+
+                    if "pdf" in mt.lower():
+                        txt = _clean(_pdf_to_text(blob))
+                        if not txt:
+                            # PDF escaneado/sin texto -> no rompas
+                            fname = c.file_name or "archivo.pdf"
+                            txt = f"[Adjunto PDF sin texto legible: {fname}]"
+                    elif mt.lower().startswith("text/"):
+                        try:
+                            txt = _clean(blob.decode("utf-8", errors="ignore"))
+                        except Exception:
+                            txt = ""
+                    else:
+                        fname = c.file_name or "archivo"
+                        kind = mt or "binario"
+                        txt = f"[Adjunto {kind}: {fname}]"
+
+                    if txt:
+                        new_contents.append(
+                            ContentModel(content_type="text", media_type=None, body=txt, file_name=None)
+                        )
+
+                else:
+                    # Ignora tipos no soportados en esta ruta
+                    pass
+
+            # Si logramos extraer algo, reemplaza el contenido del mensaje por solo texto
+            if new_contents:
+                logger.info("[CHAT] msg[%d]: %d item(s) normalizados a texto", idx, len(new_contents))
+                m.content = new_contents
+            else:
+                # Evita None/colecciones vacías
+                m.content = [
+                    ContentModel(content_type="text", media_type=None, body="", file_name=None)
+                ]
+        # --- Fin normalización ---
         
         # 4. Añadir log antes de llamar a Bedrock
         logger.info("[CHAT] Preparando args para Bedrock. (extraerá attachments desde message.content)")

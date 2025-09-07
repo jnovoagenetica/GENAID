@@ -115,7 +115,101 @@ def whoami(request: Request):
         "groups": getattr(u, "groups", []),
     }
 
+@debug_router.get("/__routes", tags=["admin"])
+def list_routes():
+    items = []
+    for r in app.router.routes:
+        path = getattr(r, "path", None)
+        methods = sorted(list(getattr(r, "methods", []) or []))
+        if path:
+            items.append({"path": path, "methods": methods})
+    return {"routes": items}
+
+@debug_router.get("/openapi_raw", tags=["admin"])
+def openapi_raw():
+    from fastapi.responses import JSONResponse
+    return JSONResponse(app.openapi())
+
 app.include_router(debug_router)
+
+# --- Compat layer: /bots -> /bot (real) ---
+import httpx
+from fastapi import Query
+from typing import List, Dict, Optional
+
+# usa el base_path ya calculado abajo; lo exponemos global
+# (está definido más abajo; lo referenciamos vía globals() en runtime)
+def _make_base(request: Request) -> str:
+    # Construye URL pública (con stage /default si aplica)
+    scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+    pb = globals().get("PUBLIC_BASE_PATH", "")  # p.ej. "/default/geneaid-backend-v5"
+    return f"{scheme}://{host}{pb}"
+
+def _forward_headers(request: Request) -> Dict[str, str]:
+    h = {}
+    for k in ("authorization", "x-user-id", "x-user-groups"):
+        v = request.headers.get(k)
+        if v:
+            h[k] = v
+    return h
+
+@app.get("/bots")
+async def bots_compat(
+    request: Request,
+    kind: Optional[str] = Query(default=None),
+    botKind: Optional[str] = Query(default=None),
+    limit: int = Query(default=30),
+) -> List[Dict]:
+    """
+    Devuelve bots reales consultando /bot y adaptando al formato esperado.
+    Soporta ?kind=metadata|private y ?botKind=... (ambos nombres).
+    """
+    k = (botKind or kind or "metadata").lower()
+
+    base = _make_base(request)
+    headers = _forward_headers(request)
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        r = await client.get(f"{base}/bot", headers=headers)
+        r.raise_for_status()
+        data = r.json()  # lista de bots reales
+
+    # Normaliza y filtra
+    norm = []
+    for b in (data or [])[: max(0, limit)]:
+        # visibilidad: usa visibility o cae a isPublic
+        vis = (b.get("visibility") or ("public" if b.get("isPublic") else "private")).lower()
+
+        item = {
+            "id": b.get("id") or b.get("botId") or b.get("bot_id"),
+            # <-- name puede venir como 'title' en tu API real
+            "name": b.get("name") or b.get("title") or b.get("displayName"),
+            "description": b.get("description") or b.get("summary"),
+            "isFavorite": bool(b.get("isPinned") or b.get("isFavorite")),
+            "avatarUrl": b.get("avatarUrl") or b.get("iconUrl") or None,
+            "visibility": vis,
+        }
+        norm.append(item)
+
+    if k == "private":
+        norm = [x for x in norm if x.get("visibility") == "private"]
+
+    # Sólo devuelve los campos que usa el front
+    return [
+        {
+            "id": x["id"],
+            "name": x["name"],
+            "description": x["description"],
+            "isFavorite": x["isFavorite"],
+            "avatarUrl": x["avatarUrl"],
+        }
+        for x in norm
+    ]
+
+@app.get("/bots/find-and-include-metadata")
+async def bots_compat_alias(request: Request, limit: int = Query(default=30)) -> List[Dict]:
+    return await bots_compat(request, kind="metadata", limit=limit)
 
 # ------------------ Manejo de errores ------------------
 
@@ -137,44 +231,45 @@ app.add_exception_handler(ValidationError, error_handler_factory(422))
 app.add_exception_handler(ResourceConflictError, error_handler_factory(409))
 app.add_exception_handler(Exception, error_handler_factory(500))
 
-# ---------- Middleware #2: auth real cuando haya token ----------
-# Este puede sobrescribir al 'anon' si llega Authorization.
+# ---------- Middleware #2: auth real + fallback por headers ----------
 @app.middleware("http")
 async def add_current_user_to_request(request: Request, call_next):
-    if is_running_on_lambda():
-        # Producción en Lambda / ECS detrás de ALB
-        if not IS_PUBLISHED_API:
-            authorization = request.headers.get("Authorization")
-            if authorization:
-                try:
-                    token_str = authorization.split(" ")[1]
-                    token = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token_str)
-                    request.state.current_user = get_current_user(token)
-                except Exception:
-                    # Si hay problema con el token, mantenemos lo que haya (anon del middleware #1)
-                    pass
-        else:
-            request.state.current_user = User(
-                id=f"PUBLISHED_API#{PUBLISHED_API_ID}",
-                name=PUBLISHED_API_ID,  # type: ignore
-                groups=[],
-            )
-    else:
-        # Desarrollo local con/ sin token
-        authorization = request.headers.get("Authorization")
-        if authorization:
-            try:
-                token_str = authorization.split(" ")[1]
-                token = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token_str)
-                request.state.current_user = get_current_user(token)
-            except Exception:
-                request.state.current_user = User(id="test_user", name="test_user", groups=[])
-        else:
-            # Sin token: usuario de prueba en local
-            request.state.current_user = User(id="test_user", name="test_user", groups=[])
+    authorization = request.headers.get("Authorization")
+    x_user_id = (request.headers.get("x-user-id") or "").strip()
+    x_user_groups = (request.headers.get("x-user-groups") or "")
+    groups = [g.strip() for g in x_user_groups.split(",") if g.strip()]
 
-    response = await call_next(request)
-    return response
+    # Modo Published API: identidad fija
+    if IS_PUBLISHED_API:
+        request.state.current_user = User(
+            id=f"PUBLISHED_API#{PUBLISHED_API_ID}",
+            name=PUBLISHED_API_ID,  # type: ignore
+            groups=[],
+        )
+        return await call_next(request)
+
+    # 1) Si viene token, úsalo
+    if authorization:
+        try:
+            token_str = authorization.split(" ", 1)[1]
+            token = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token_str)
+            request.state.current_user = get_current_user(token)
+            # NO hay return aquí, para que el fallback pueda actuar si el token es inválido
+            # y get_current_user lanza excepción
+        except Exception:
+            # Si el token es inválido o malformado, simplemente lo ignoramos.
+            # El bloque final garantizará un usuario anónimo.
+            pass
+
+    # 2) Fallback: cabeceras simples (útil cuando el front no manda token)
+    # Se ejecuta SOLO si no había token o el token era inválido
+    if not hasattr(request.state, "current_user") and x_user_id:
+        request.state.current_user = User(id=x_user_id, name=x_user_id, groups=groups)
+
+    # 3) Sin token ni x-user-id, o token inválido: garantiza usuario 'anon'
+    if not hasattr(request.state, "current_user"):
+        request.state.current_user = User(id="anon", name="Anonymous", groups=[])
+    return await call_next(request)
 
 # ---------- Middleware #3: logging ----------
 @app.middleware("http")
@@ -201,6 +296,8 @@ if raw_base.startswith("/default/"):
     base_path = raw_base[len("/default"):]  # -> "/geneaid-backend-v5"
 else:
     base_path = raw_base
+
+PUBLIC_BASE_PATH = raw_base or base_path  # <-- incluye "/default/..." si existe
 
 kwargs = {}
 if base_path:
