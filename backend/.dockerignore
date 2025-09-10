@@ -1,13 +1,36 @@
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.pytest_cache/
+.coverage
+
+# Entornos / variables
 .venv/
 .env
 .env.*
+.env.local
+
+# VCS / editor
 .git/
+.gitignore
+.gitattributes
 .vscode/
 .idea/
-tests/
-docs/
+
+# Node (si hay scripts)
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Artefactos
 dist/
 build/
-node_modules/
+docs/
+tests/
+*.log

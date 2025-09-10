@@ -1,20 +1,14 @@
-FROM public.ecr.aws/docker/library/python:3.11.6-slim-bookworm
+# backend/Dockerfile  — imagen para AWS Lambda (HTTP)
+FROM public.ecr.aws/lambda/python:3.11
 
-# (Quitar la línea del lambda-adapter)
+# 1) Dependencias (se instalan en /var/task, ruta que ejecuta Lambda)
+COPY app/requirements.txt ./requirements.txt
+RUN pip install -r requirements.txt --target "/var/task"
 
-WORKDIR /app  # opcional, más estándar; si prefieres, puedes dejar /backend
-COPY ./pyproject.toml ./poetry.lock ./
+# 2) Código de la app (copia SOLO lo que importas)
+COPY app/ /var/task/app
+# Si tu código usa esto, mantenlo; si no existe en tu repo, quita la línea:
+COPY embedding_statemachine/ /var/task/embedding_statemachine
 
-ENV POETRY_REQUESTS_TIMEOUT=10800
-RUN python -m pip install --upgrade pip && \
-    pip install poetry --no-cache-dir && \
-    poetry config virtualenvs.create false && \
-    poetry install --no-interaction --no-ansi && \
-    poetry cache clear --all pypi
-
-# Copia tu código
-COPY . .
-
-ENV PORT=8000
-EXPOSE ${PORT}
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# 3) EntryPoint de Lambda: tu main.py define handler = Mangum(app)
+CMD ["app.main.handler"]

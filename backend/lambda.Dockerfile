@@ -1,15 +1,14 @@
+# backend/Dockerfile  — imagen para AWS Lambda (HTTP)
 FROM public.ecr.aws/lambda/python:3.11
 
-COPY ./pyproject.toml ./poetry.lock ./
+# 1) Dependencias (se instalan en /var/task, ruta que ejecuta Lambda)
+COPY app/requirements.txt ./requirements.txt
+RUN pip install -r requirements.txt --target "/var/task"
 
-ENV POETRY_REQUESTS_TIMEOUT=10800
-RUN python -m pip install --upgrade pip && \
-    pip install poetry --no-cache-dir && \
-    poetry config virtualenvs.create false && \
-    poetry install --no-interaction --no-ansi --only main && \
-    poetry cache clear --all pypi
+# 2) Código de la app (copia SOLO lo que importas)
+COPY app/ /var/task/app
+# Si tu código usa esto, mantenlo; si no existe en tu repo, quita la línea:
+COPY embedding_statemachine/ /var/task/embedding_statemachine
 
-COPY ./app ./app
-COPY ./embedding_statemachine ./embedding_statemachine
-
-CMD ["app.websocket.handler"]
+# 3) EntryPoint de Lambda: tu main.py define handler = Mangum(app)
+CMD ["app.main.handler"]

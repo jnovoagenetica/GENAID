@@ -1,0 +1,29 @@
+{
+  "Variables": {
+    "CORS_ALLOW_ORIGINS": "http://localhost:5173",
+
+    "ACCOUNT": "339712981383",
+    "REGION": "us-east-1",
+    "BEDROCK_REGION": "us-east-1",
+
+    "USER_POOL_ID": "us-east-1_w3RFFSrW4",
+    "CLIENT_ID": "d086q0f02d0bo20jn3b7nq97b",
+
+    "TABLE_ACCESS_ROLE_ARN": "arn:aws:iam::339712981383:role/BedrockChatStack-DatabaseTableAccessRole59AAC05E-9YNhmbJFyA1C",
+
+    "TABLE_NAME": "BedrockChatStack-DatabaseConversationTable03F3FD7A-B4AZQCLQ29BQ",
+
+    "DDB_CONVERSATION_TABLE": "BedrockChatStack-DatabaseConversationTable03F3FD7A-B4AZQCLQ29BQ",
+    "DDB_CONV_PK_PREFIX": "CONV#",
+    "DDB_BOTS_PK_PREFIX": "BOT#",
+    "DDB_META_SK_VALUE": "META",
+
+    "WEBSOCKET_SESSION_TABLE_NAME": "BedrockChatStack-DatabaseWebsocketSessionTable2302422E-TIWUTQ91TT7M",
+    "LARGE_MESSAGE_BUCKET": "bedrockchatstack-largemessagebucketad0c9b6b-srbyieayjo3g",
+    "LARGE_PAYLOAD_SUPPORT_BUCKET": "bedrockchatstack-websocketlargepayloadsupportbucke-rrs2crz51bs4",
+    "DOCUMENT_BUCKET": "bedrockchatstack-documentbucketae41e5a9-s2ir2cmqdw7h",
+    "DB_SECRETS_ARN": "arn:aws:secretsmanager:us-east-1:339712981383:secret:VectorStoreClusterSecretC38-oayqQh8KO0EU-JA9OaQ",
+
+    "ENABLE_MISTRAL": "false"
+  }
+}
