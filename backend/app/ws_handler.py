@@ -27,6 +27,7 @@ _user_ids: Dict[str, str] = {}
 
 # --- helpers ---
 _DATA_URL_RE = re.compile(r'^data:([^;]+);base64,(.+)$', re.IGNORECASE)
+_SAFE_NAME_RE = re.compile(r'[^A-Za-z0-9.\- _()\[\]]+')
 
 def _mgmt_client(event):
     domain = event["requestContext"]["domainName"]
@@ -67,6 +68,41 @@ def _strip_data_url(maybe_data_url: Optional[str], mime_hint: Optional[str] = No
     if m:
         return (m.group(1) or mime_hint or "application/octet-stream", m.group(2))
     return (mime_hint or "application/octet-stream", maybe_data_url)
+
+def _safe_name(name: Optional[str]) -> str:
+    n = name or "archivo.bin"
+    n = _SAFE_NAME_RE.sub("_", n)
+    return n[:120]
+
+def _persist_uploads(conv_id: str, msg_id: str, files: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Sube bytes a S3 y devuelve referencias livianas para guardar en la conversación.
+    Retorna dicts con: contentType, fileName, mediaType, url (s3://bucket/key)
+    """
+    refs: List[Dict[str, Any]] = []
+    for f in files:
+        try:
+            raw = base64.b64decode(f["base64"])
+            mime = _pick_mime(f.get("mimeType"), f.get("mediaType"))
+            name = _safe_name(f.get("name"))
+            key  = f"uploads/{conv_id}/{msg_id}/{str(ULID())}_{name}"
+            s3.put_object(Bucket=S3_BUCKET, Key=key, Body=raw, ContentType=mime)
+
+            kind = _infer_format(mime)
+            ct   = "image" if kind in ("png", "jpeg", "webp", "gif", "tiff") else "textAttachment"
+
+            refs.append({
+                "contentType": ct,
+                "fileName": name,
+                "mediaType": mime,
+                "url": f"s3://{S3_BUCKET}/{key}",
+            })
+        except Exception:
+            log.exception("No se pudo subir adjunto, se ignora")
+    return refs
+
+def _is_data_uri(s: Optional[str]) -> bool:
+    return isinstance(s, str) and s.startswith("data:")
 
 # === Persistencia de CHUNKs en S3 ===
 def _prefix(cid: str) -> str:
@@ -236,6 +272,7 @@ def handler(event, context):
             except Exception:
                 log.exception("Error recolectando adjuntos")
 
+            # Attachments para Bedrock (se usan sólo para la llamada, no se persisten)
             attachments = []
             for f in uploaded_files:
                 try:
@@ -245,10 +282,9 @@ def handler(event, context):
                     })
                 except Exception:
                     log.exception("Adjunto corrupto, ignorado")
-
             log.info(f"[WS] Adjuntos recogidos: {len(attachments)}")
 
-            # ---- ChatInput y preparación de conversación ----
+            # ---- ChatInput y preparación de conversación (SIN limpiar nada antes) ----
             try:
                 chat_input = ChatInput(**parsed)
             except Exception as e:
@@ -265,11 +301,56 @@ def handler(event, context):
                 _reply(event, {"status": "ERROR", "message": f"PREPARE_CONVERSATION: {str(e)}"})
                 return {"statusCode": 200}
 
+            # === Aquí aligeramos el mensaje del usuario ANTES de guardar en Dynamo ===
             try:
-                store_conversation(user_id, conversation)  # best effort
+                conv_id = conversation.id or parsed["conversationId"]
+                refs = _persist_uploads(conv_id, user_msg_id, uploaded_files)
+
+                # Reescribir el contenido del mensaje del usuario:
+                umsg = conversation.message_map[user_msg_id]
+
+                # Conserva textos y también adjuntos que NO sean data: (por si vinieran URLs HTTP)
+                cleaned_content: List[ContentModel] = []
+                for item in umsg.content:
+                    try:
+                        ct  = getattr(item, "content_type", None)
+                        body = getattr(item, "body", None)
+                        if ct == "text":
+                            cleaned_content.append(item)
+                        elif ct in ("image", "textAttachment"):
+                            if isinstance(body, str) and body.startswith("data:"):
+                                # lo saltamos (pesado), se reemplazará por refs
+                                continue
+                            cleaned_content.append(item)
+                        else:
+                            # Cualquier otro tipo, lo conservamos
+                            cleaned_content.append(item)
+                    except Exception:
+                        # Si por alguna razón no tiene los atributos, lo conservamos
+                        cleaned_content.append(item)
+
+                # Agrega refs nuevas (orden no crítico; van al final)
+                for r in refs:
+                    cleaned_content.append(
+                        ContentModel(
+                            content_type=r["contentType"],
+                            body=r["url"],                 # s3://..., NO base64
+                            media_type=r["mediaType"],
+                            file_name=r["fileName"],
+                        )
+                    )
+
+                umsg.content = cleaned_content
+            except Exception:
+                log.exception("No se pudieron persistir/adjuntar referencias")
+
+            # Guardado inicial (ya sin base64)
+            try:
+                store_conversation(user_id, conversation)
             except Exception:
                 log.exception("store_conversation inicial falló (continuo)")
 
+            # --- Preparar llamada a Bedrock ---
             message_map = conversation.message_map
             messages = trace_to_root(node_id=user_msg_id, message_map=message_map)
 
