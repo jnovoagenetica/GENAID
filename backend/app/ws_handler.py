@@ -20,13 +20,16 @@ S3_BUCKET = os.environ.get("LARGE_PAYLOAD_SUPPORT_BUCKET")
 if not S3_BUCKET:
     raise RuntimeError("LARGE_PAYLOAD_SUPPORT_BUCKET no está configurado")
 
+WS_SESSION_PREFIX = os.environ.get("WS_SESSION_PREFIX", "ws-sessions/")  # para mapear connectionId -> sub
+
 s3 = boto3.client("s3")
 
-# Solo guardamos el user id en memoria (los CHUNKs van a S3)
+# Cache en memoria (best-effort). En Lambda puede perderse entre invocaciones.
 _user_ids: Dict[str, str] = {}
 
 # --- helpers ---
-_DATA_URL_RE = re.compile(r'^data:([^;]+);base64,(.+)$', re.IGNORECASE)
+# Acepta metadatos extra y saltos de línea en la parte de datos
+_DATA_URL_RE = re.compile(r'^data:([^,]+),([\s\S]+)$', re.IGNORECASE)
 _SAFE_NAME_RE = re.compile(r'[^A-Za-z0-9.\- _()\[\]]+')
 
 def _mgmt_client(event):
@@ -62,11 +65,30 @@ def _pick_mime(*candidates: Optional[str]) -> str:
     return "application/octet-stream"
 
 def _strip_data_url(maybe_data_url: Optional[str], mime_hint: Optional[str] = None) -> Tuple[str, Optional[str]]:
+    """
+    Si es data URL, devuelve (mime, base64_sin_espacios). Si no, devuelve (mime_hint, string_original).
+    Acepta meta como: data:application/pdf;base64,... o data:image/png;name=x;base64,...
+    """
     if not isinstance(maybe_data_url, str):
         return (mime_hint or "application/octet-stream", maybe_data_url)
     m = _DATA_URL_RE.match(maybe_data_url)
     if m:
-        return (m.group(1) or mime_hint or "application/octet-stream", m.group(2))
+        meta = m.group(1) or ""
+        data = m.group(2) or ""
+        mime = mime_hint or "application/octet-stream"
+        is_b64 = False
+        for part in meta.split(";"):
+            p = part.strip()
+            if "/" in p and mime == "application/octet-stream":
+                mime = p
+            if p.lower() == "base64":
+                is_b64 = True
+        if is_b64:
+            # Quita espacios/saltos de línea que algunos encoders insertan
+            data = re.sub(r"\s+", "", data)
+            return (mime, data)
+        # Si no es base64, no lo usamos aquí
+        return (mime, None)
     return (mime_hint or "application/octet-stream", maybe_data_url)
 
 def _safe_name(name: Optional[str]) -> str:
@@ -82,7 +104,15 @@ def _persist_uploads(conv_id: str, msg_id: str, files: List[Dict[str, Any]]) -> 
     refs: List[Dict[str, Any]] = []
     for f in files:
         try:
-            raw = base64.b64decode(f["base64"])
+            b64 = f.get("base64") or ""
+            if isinstance(b64, str) and b64.startswith("data:"):
+                # Normaliza por si llegó de nuevo con header
+                mime2, b64n = _strip_data_url(b64, f.get("mimeType"))
+                if b64n:
+                    b64 = b64n
+                    if mime2 and not f.get("mimeType"):
+                        f["mimeType"] = mime2
+            raw = base64.b64decode(b64)
             mime = _pick_mime(f.get("mimeType"), f.get("mediaType"))
             name = _safe_name(f.get("name"))
             key  = f"uploads/{conv_id}/{msg_id}/{str(ULID())}_{name}"
@@ -103,6 +133,42 @@ def _persist_uploads(conv_id: str, msg_id: str, files: List[Dict[str, Any]]) -> 
 
 def _is_data_uri(s: Optional[str]) -> bool:
     return isinstance(s, str) and s.startswith("data:")
+
+# === Persistencia de sesión (connectionId -> sub) en S3 ===
+def _sess_key(cid: str) -> str:
+    return f"{WS_SESSION_PREFIX}{cid}.json"
+
+def _save_user_for_cid(cid: str, sub: str):
+    _user_ids[cid] = sub
+    try:
+        s3.put_object(
+            Bucket=S3_BUCKET,
+            Key=_sess_key(cid),
+            Body=json.dumps({"sub": sub}).encode("utf-8"),
+            ContentType="application/json",
+        )
+    except Exception:
+        log.exception("No se pudo persistir sesión WS en S3")
+
+def _get_user_for_cid(cid: str) -> str:
+    u = _user_ids.get(cid)
+    if u:
+        return u
+    try:
+        obj  = s3.get_object(Bucket=S3_BUCKET, Key=_sess_key(cid))
+        data = json.loads(obj["Body"].read().decode("utf-8"))
+        sub  = data.get("sub") or "ws-user"
+        _user_ids[cid] = sub
+        return sub
+    except Exception:
+        return "ws-user"
+
+def _delete_user_for_cid(cid: str):
+    _user_ids.pop(cid, None)
+    try:
+        s3.delete_object(Bucket=S3_BUCKET, Key=_sess_key(cid))
+    except Exception:
+        pass
 
 # === Persistencia de CHUNKs en S3 ===
 def _prefix(cid: str) -> str:
@@ -154,11 +220,12 @@ def handler(event, context):
     cid   = event["requestContext"]["connectionId"]
 
     if route == "$connect":
+        # Conectar no trae body ni token; se setea por START
         _user_ids[cid] = "ws-user"
         return {"statusCode": 200}
 
     if route == "$disconnect":
-        _user_ids.pop(cid, None)
+        _delete_user_for_cid(cid)
         _clear_prefix(cid)  # best-effort
         return {"statusCode": 200}
 
@@ -183,10 +250,11 @@ def handler(event, context):
     if step == "START":
         token = body.get("token")
         try:
-            _user_ids[cid] = verify_token(token)["sub"] if token else "ws-user"
+            sub = verify_token(token)["sub"] if token else "ws-user"
         except Exception:
-            _user_ids[cid] = "ws-user"
-        _clear_prefix(cid)  # limpia restos previos
+            sub = "ws-user"
+        _save_user_for_cid(cid, sub)   # persistente (S3 + cache)
+        _clear_prefix(cid)             # limpia restos previos de CHUNKs
         _reply_text(event, "Session started.")
         return {"statusCode": 200}
 
@@ -235,7 +303,7 @@ def handler(event, context):
             if not parsed.get("conversationId"):
                 parsed["conversationId"] = str(ULID())
 
-            # --- Adjuntos (raíz + content: textAttachment / image) ---
+            # --- Adjuntos (raíz + content: textAttachment/file/document/image) ---
             uploaded_files: List[Dict[str, Any]] = []
             try:
                 # 1) attachments en raíz
@@ -244,7 +312,7 @@ def handler(event, context):
                         continue
                     name = a.get("name") or "archivo.bin"
                     mime = _pick_mime(a.get("mimeType"), a.get("mediaType"))
-                    raw  = a.get("base64") or a.get("body") or a.get("data") or ""
+                    raw  = a.get("base64") or a.get("body") or a.get("data") or a.get("url") or ""
                     mime, b64 = _strip_data_url(raw, mime)
                     if b64:
                         uploaded_files.append({"name": name, "mimeType": mime, "base64": b64})
@@ -255,17 +323,14 @@ def handler(event, context):
                     if ct in ("textattachment", "file", "document"):
                         name = c.get("fileName") or c.get("name") or "archivo.bin"
                         mime = _pick_mime(c.get("mimeType"), c.get("mediaType"))
-                        raw  = c.get("body") or c.get("base64") or c.get("data") or ""
+                        raw  = c.get("body") or c.get("base64") or c.get("data") or c.get("url") or ""
                         mime, b64 = _strip_data_url(raw, mime)
                         if b64:
                             uploaded_files.append({"name": name, "mimeType": mime, "base64": b64})
                     elif ct in ("image", "input_image", "image_file"):
                         name = c.get("fileName") or c.get("name") or "imagen.png"
                         mime = _pick_mime(c.get("mimeType"), c.get("mediaType"))
-                        raw  = c.get("body") or c.get("base64") or c.get("data")
-                        url  = c.get("url")
-                        if not raw and isinstance(url, str) and url.startswith("data:"):
-                            raw = url
+                        raw  = c.get("body") or c.get("base64") or c.get("data") or c.get("url")
                         mime, b64 = _strip_data_url(raw, mime)
                         if b64:
                             uploaded_files.append({"name": name, "mimeType": mime, "base64": b64})
@@ -292,7 +357,21 @@ def handler(event, context):
                 _reply(event, {"status": "ERROR", "message": f"CHAT_INPUT_VALIDATION: {str(e)}"})
                 return {"statusCode": 200}
 
-            user_id = _user_ids.get(cid, "ws-user")
+            # Resolver user_id de forma robusta (puede haberse perdido la cache del contenedor)
+            user_id = _get_user_for_cid(cid)
+            if user_id == "ws-user":
+                # fallback: intenta token del payload o headers
+                tok = (parsed.get("token") if isinstance(parsed, dict) else None) \
+                      or (event.get("headers") or {}).get("Authorization") \
+                      or (event.get("headers") or {}).get("authorization")
+                if isinstance(tok, str) and tok.lower().startswith("bearer "):
+                    tok = tok.split(" ", 1)[1]
+                if tok:
+                    try:
+                        user_id = verify_token(tok)["sub"]
+                        _save_user_for_cid(cid, user_id)
+                    except Exception:
+                        log.exception("TOKEN_INVALIDO_EN_END")
 
             try:
                 user_msg_id, conversation, bot = prepare_conversation(user_id, chat_input)
@@ -301,7 +380,7 @@ def handler(event, context):
                 _reply(event, {"status": "ERROR", "message": f"PREPARE_CONVERSATION: {str(e)}"})
                 return {"statusCode": 200}
 
-            # === Aquí aligeramos el mensaje del usuario ANTES de guardar en Dynamo ===
+            # === Aligerar el mensaje del usuario ANTES de guardar en Dynamo ===
             try:
                 conv_id = conversation.id or parsed["conversationId"]
                 refs = _persist_uploads(conv_id, user_msg_id, uploaded_files)
@@ -309,24 +388,22 @@ def handler(event, context):
                 # Reescribir el contenido del mensaje del usuario:
                 umsg = conversation.message_map[user_msg_id]
 
-                # Conserva textos y también adjuntos que NO sean data: (por si vinieran URLs HTTP)
+                # Conserva textos y adjuntos NO-embebidos; elimina sólo data:
                 cleaned_content: List[ContentModel] = []
                 for item in umsg.content:
                     try:
-                        ct  = getattr(item, "content_type", None)
+                        ct   = getattr(item, "content_type", None)
                         body = getattr(item, "body", None)
                         if ct == "text":
                             cleaned_content.append(item)
-                        elif ct in ("image", "textAttachment"):
+                        elif ct in ("image", "textAttachment", "file", "document"):
                             if isinstance(body, str) and body.startswith("data:"):
-                                # lo saltamos (pesado), se reemplazará por refs
+                                # lo saltamos (pesado), se reemplazará por refs S3
                                 continue
                             cleaned_content.append(item)
                         else:
-                            # Cualquier otro tipo, lo conservamos
                             cleaned_content.append(item)
                     except Exception:
-                        # Si por alguna razón no tiene los atributos, lo conservamos
                         cleaned_content.append(item)
 
                 # Agrega refs nuevas (orden no crítico; van al final)
