@@ -7,7 +7,7 @@
         name: 'GHeneAId',
         nameWithoutClaude: 'Bedrock Chat',
         inputMessage: '請輸入訊息',
-        starredBots: '可用機器人 Bots',
+        starredBots: '我的最愛 Bots',
         recentlyUsedBots: '最近用過的 Bots',
         conversationHistory: '交談紀錄',
         chatWaitingSymbol: '▍',

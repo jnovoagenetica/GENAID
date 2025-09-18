@@ -12,7 +12,7 @@ const translation = {
       name: 'GenAID',
       nameWithoutClaude: 'Bedrock Chat',
       inputMessage: '入力してください',
-      starredBots: '利用可能なボット',
+      starredBots: 'スター付きのボット',
       recentlyUsedBots: '最近使用したボット',
       conversationHistory: '会話履歴',
       chatWaitingSymbol: '▍',
