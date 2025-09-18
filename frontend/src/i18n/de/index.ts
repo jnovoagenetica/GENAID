@@ -4,7 +4,7 @@ const translation = {
       name: 'GHeneAId',
       nameWithoutClaude: 'Bedrock Chat',
       inputMessage: 'Nachricht senden',
-      starredBots: 'Favorisierte Bots',
+      starredBots: 'Verfügbare Bots',
       recentlyUsedBots: 'Zuletzt genutzte Bots',
       conversationHistory: 'Verlauf',
       chatWaitingSymbol: '▍',
