@@ -8,7 +8,7 @@ const translation = {
     app: {
       name: 'GHeneAId',
       inputMessage: 'Inviare un messaggio',
-      starredBots: 'Bot preferiti',
+      starredBots: 'Bot disponibili',
       recentlyUsedBots: 'Bot utilizzati di recente',
       conversationHistory: 'Cronologia',
       chatWaitingSymbol: '▍',
