@@ -32,6 +32,9 @@ import useBot from '../hooks/useBot';
 import DrawerItem from './DrawerItem';
 import ExpandableDrawerGroup from './ExpandableDrawerGroup';
 
+// ID fijo del bot Hiperamonemia (de tu URL pública)
+const HIPER_BOT_ID = '01JD5YQ0ATMEHW05RXNEHV5AJX';
+
 type Props = BaseProps & {
   onSignOut: () => void;
 };
@@ -220,9 +223,10 @@ const ChatListDrawer: React.FC<Props> = (props) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [switchOpen]);
 
-  // CORRECCIÓN: Llama a closeDrawerIfNeeded después de la acción.
   const onClickNewChat = useCallback(() => {
     newChat();
+    // Opcional: si sigue mostrando el header incorrecto, forzar la ruta aquí
+    // setTimeout(() => navigate(`bot/${HIPER_BOT_ID}`), 0);
     closeDrawerIfNeeded();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newChat, closeDrawerIfNeeded]);
@@ -282,7 +286,7 @@ const ChatListDrawer: React.FC<Props> = (props) => {
             <DrawerItem
               isActive={false}
               icon={<PiNotePencil />}
-              to=""
+              to={`bot/${HIPER_BOT_ID}`} // <<-- navega directo al bot de Hiperamonemia
               onClick={onClickNewChat}
               labelComponent={t('button.newChat')}
             />
