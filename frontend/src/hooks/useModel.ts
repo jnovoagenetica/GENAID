@@ -2,22 +2,27 @@ import { create } from 'zustand';
 import { Model } from '../@types/conversation';
 import { useMemo } from 'react';
 
-// Solo Claude 3.5 (Sonnet) disponible
 const availableModels = [
   {
-    modelId: 'claude-v3.5-sonnet',
-    label: 'Claude 3.5 (Sonnet)',
-    supportMediaType: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
+    modelId: 'claude-v4.5-sonnet',
+    label: 'Claude Sonnet 4.5',
+    supportMediaType: [
+      'image/jpeg',
+      'image/png',
+      'image/gif',
+      'image/webp',
+      'application/pdf', // opcional si aceptas PDF desde UI
+    ],
   },
 ];
 
 const useModelState = create<{
   modelId: Model;
   setModelId: (m: Model) => void;
-}>((_set) => ({
-  modelId: 'claude-v3.5-sonnet',
-  setModelId: (_m) => {
-    console.warn('Cambio de modelo bloqueado. Solo se permite Claude 3.5 (Sonnet).');
+}>((set) => ({
+  modelId: 'claude-v4.5-sonnet',
+  setModelId: (m) => {
+    set({ modelId: m });
   },
 }));
 
@@ -25,7 +30,7 @@ const useModel = () => {
   const { modelId, setModelId } = useModelState();
 
   const model = useMemo(() => {
-    return availableModels.find((model) => model.modelId === modelId);
+    return availableModels.find((m) => m.modelId === modelId);
   }, [modelId]);
 
   return {

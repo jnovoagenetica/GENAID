@@ -1,5 +1,6 @@
 export type Role = 'system' | 'assistant' | 'user';
 export type Model =
+  | 'claude-v4.5-sonnet' 
   | 'claude-instant-v1'
   | 'claude-v2'
   | 'claude-v3-opus'

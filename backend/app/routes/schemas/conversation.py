@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 from app.routes.schemas.base import BaseSchema
 
+# ✨ Agregamos claude-v4.5-sonnet acá
 type_model_name = Literal[
     "claude-instant-v1",
     "claude-v2",
@@ -21,6 +22,7 @@ type_model_name = Literal[
     "claude-v3.5-sonnet",
     "claude-v3-haiku",
     "claude-v3-opus",
+    "claude-v4.5-sonnet",  # <<< NUEVO para Claude Sonnet 4.5
     "mistral-7b-instruct",
     "mixtral-8x7b-instruct",
     "mistral-large",

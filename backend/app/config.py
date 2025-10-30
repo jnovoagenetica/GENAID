@@ -52,8 +52,8 @@ DEFAULT_SEARCH_CONFIG = {
 }
 
 # Used for price estimation.
-# NOTE: The following is based on 2024-03-07
-# See: https://aws.amazon.com/bedrock/pricing/
+# NOTE: Values reflect Bedrock on-demand inference pricing (por 1000 tokens)
+#       para la región us-east-1 al momento de integración.
 BEDROCK_PRICING = {
     "us-east-1": {
         "claude-instant-v1": {
@@ -67,6 +67,16 @@ BEDROCK_PRICING = {
         "claude-v3-haiku": {"input": 0.00025, "output": 0.00125},
         "claude-v3-sonnet": {"input": 0.00300, "output": 0.01500},
         "claude-v3.5-sonnet": {"input": 0.00300, "output": 0.01500},
+
+        # 💡 NUEVO: Claude Sonnet 4.5 (contexto normal)
+        # Según "Inferencia interregional geográfica y dentro de una región":
+        # Entrada: 0.0033 USD / 1K tokens
+        # Salida:  0.0165 USD / 1K tokens
+        "claude-v4.5-sonnet": {
+            "input": 0.0033,
+            "output": 0.0165,
+        },
+
         "mistral-7b-instruct": {"input": 0.00015, "output": 0.0002},
         "mixtral-8x7b-instruct": {"input": 0.00045, "output": 0.0007},
         "mistral-large": {"input": 0.008, "output": 0.024},
@@ -108,6 +118,13 @@ BEDROCK_PRICING = {
         "claude-v3-haiku": {"input": 0.00025, "output": 0.00125},
         "claude-v3-sonnet": {"input": 0.00300, "output": 0.01500},
         "claude-v3.5-sonnet": {"input": 0.00300, "output": 0.01500},
+
+        # 💡 NUEVO también en default como fallback
+        "claude-v4.5-sonnet": {
+            "input": 0.0033,
+            "output": 0.0165,
+        },
+
         "claude-v3-opus": {"input": 0.01500, "output": 0.07500},
         "mistral-7b-instruct": {"input": 0.00015, "output": 0.0002},
         "mixtral-8x7b-instruct": {"input": 0.00045, "output": 0.0007},
