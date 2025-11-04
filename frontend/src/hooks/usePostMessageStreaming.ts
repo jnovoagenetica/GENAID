@@ -23,7 +23,7 @@ function fileToBase64(file: File): Promise<string> {
     reader.onerror = () => reject(reader.error);
     reader.onload = () => {
       const result = String(reader.result || '');
-      const b64 = result.includes(',') ? result.split(',')[1] : result; // por si el navegador devuelve dataURL
+      const b64 = result.includes(',') ? result.split(',')[1] : result;
       resolve(b64);
     };
     reader.readAsDataURL(file);
@@ -47,27 +47,29 @@ const usePostMessageStreaming = create<{
         dispatch(i18next.t('app.chatWaitingSymbol'));
       }
 
-      const token = (await Auth.currentSession()).getIdToken().getJwtToken();
+      // 1. OBTENER TOKEN DE COGNITO
+      const session = await Auth.currentSession();
+      const token = session.getIdToken().getJwtToken();
 
       const text =
         input.message.content.find((c) => c.contentType === 'text')?.body ?? '';
 
-      // 1) Content para el mensaje (texto + imágenes)
+      // 2. Construir contents (texto + imágenes)
       const contents: any[] = [
         { contentType: 'text', body: text },
         ...input.message.content.filter((c) => c.contentType === 'image'),
       ];
 
-      // 2) Recolectar attachments que ya vengan como "textAttachment" en el content
+      // 3. Adjuntos que ya vienen en el content
       const attachmentsFromContent: AttachmentOut[] = input.message.content
         .filter((c) => c.contentType === 'textAttachment' && c.body)
         .map((c: any) => ({
           name: c.fileName || 'archivo.pdf',
           mimeType: c.mimeType || c.mediaType || 'application/pdf',
-          base64: c.body, // ya viene en base64
+          base64: c.body,
         }));
 
-      // 3) Convertir los File[] entrantes a attachments y, opcionalmente, replicarlos como textAttachment en content
+      // 4. Convertir File[] a base64 y agregarlos
       const attachmentsFromFiles: AttachmentOut[] = [];
       for (const f of input.files ?? []) {
         if (f.type === 'application/pdf') {
@@ -77,8 +79,7 @@ const usePostMessageStreaming = create<{
             mimeType: f.type || 'application/pdf',
             base64,
           });
-
-          // Opcional: mantener compatibilidad con flujos antiguos
+          // mantener compatibilidad
           contents.push({
             contentType: 'textAttachment',
             body: base64,
@@ -86,7 +87,6 @@ const usePostMessageStreaming = create<{
             mimeType: f.type || 'application/pdf',
           });
         }
-        // Si luego quieres soportar otros tipos, se agregan aquí.
       }
 
       const attachments: AttachmentOut[] = [
@@ -94,23 +94,23 @@ const usePostMessageStreaming = create<{
         ...attachmentsFromFiles,
       ];
 
-      // 4) Payload final: incluimos "attachments" a nivel raíz
+      // 5. Payload final
       const payload: any = {
         ...input,
         message: {
           ...input.message,
           content: contents,
         },
-        attachments, // <--- CLAVE para el backend
-        token,
+        attachments,
+        token, // <- lo sigues mandando dentro del mensaje
       };
       delete payload.files;
 
       const payloadString = JSON.stringify(payload);
 
+      // 6. Trocear
       const chunkedPayloads: string[] = [];
       const chunkCount = Math.ceil(payloadString.length / CHUNK_SIZE);
-
       for (let i = 0; i < chunkCount; i++) {
         const start = i * CHUNK_SIZE;
         const end = Math.min(start + CHUNK_SIZE, payloadString.length);
@@ -121,9 +121,13 @@ const usePostMessageStreaming = create<{
 
       return new Promise<string>((resolve, reject) => {
         let completion = '';
-        const ws = new WebSocket(WS_ENDPOINT);
+
+        // 7. ***ABRIR WS CON TOKEN EN LA URL***
+        const wsUrl = `${WS_ENDPOINT}?token=${encodeURIComponent(token)}`;
+        const ws = new WebSocket(wsUrl);
 
         ws.onopen = () => {
+          // además, le sigues avisando en el primer mensaje
           ws.send(JSON.stringify({ step: PostStreamingStatus.START, token }));
         };
 
@@ -139,7 +143,13 @@ const usePostMessageStreaming = create<{
 
             if (message.data === 'Session started.') {
               chunkedPayloads.forEach((chunk, index) => {
-                ws.send(JSON.stringify({ step: PostStreamingStatus.BODY, index, part: chunk }));
+                ws.send(
+                  JSON.stringify({
+                    step: PostStreamingStatus.BODY,
+                    index,
+                    part: chunk,
+                  })
+                );
               });
               return;
             }
@@ -159,7 +169,6 @@ const usePostMessageStreaming = create<{
                 case PostStreamingStatus.FETCHING_KNOWLEDGE:
                   dispatch(i18next.t('bot.label.retrievingKnowledge'));
                   break;
-
                 case PostStreamingStatus.STREAMING:
                   if (data.completion || data.completion === '') {
                     if (completion.endsWith(i18next.t('app.chatWaitingSymbol'))) {
@@ -169,7 +178,6 @@ const usePostMessageStreaming = create<{
                     dispatch(completion);
                   }
                   break;
-
                 case PostStreamingStatus.STREAMING_END:
                   if (completion.endsWith(i18next.t('app.chatWaitingSymbol'))) {
                     completion = completion.slice(0, -1);
@@ -177,11 +185,9 @@ const usePostMessageStreaming = create<{
                   }
                   ws.close();
                   break;
-
                 case PostStreamingStatus.ERROR:
                   ws.close();
                   throw new Error(i18next.t('error.predict.invalidResponse'));
-
                 default:
                   dispatch(i18next.t('app.chatWaitingSymbol'));
               }
@@ -189,13 +195,11 @@ const usePostMessageStreaming = create<{
               ws.close();
               throw new Error(i18next.t('error.predict.invalidResponse'));
             }
-          // Cambiado de catch (e) a catch para evitar el error de variable no usada
           } catch {
             reject(i18next.t('error.predict.general'));
           }
         };
 
-        // Cambiado de ws.onerror = (e) a ws.onerror = ()
         ws.onerror = () => {
           ws.close();
           reject(i18next.t('error.predict.general'));
