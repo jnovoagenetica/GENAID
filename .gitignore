@@ -4,4 +4,7 @@ verification
 
 __pycache__/
 .venv
-.DS_Store
+.DS_Storebackend/.env.local
+.env
+*.env
+.env.*
