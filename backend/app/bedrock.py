@@ -33,6 +33,8 @@ DEFAULT_GENERATION_CONFIG = (
 client = get_bedrock_runtime_client()
 
 
+# ==================== Tipos ====================
+
 class GuardrailConfig(TypedDict):
     guardrailIdentifier: str
     guardrailVersion: str
@@ -106,6 +108,8 @@ class ConverseApiResponse(TypedDict):
     usage: ConverseApiResponseUsage
 
 
+# ==================== Compat deprecada ====================
+
 def compose_args(
     messages: list[MessageModel],
     model: type_model_name,
@@ -122,6 +126,8 @@ def compose_args(
         )
     )
 
+
+# ==================== Utilidades ====================
 
 def _get_converse_supported_format(ext: str | None) -> str | None:
     if not ext:
@@ -149,11 +155,7 @@ def _sanitize_bedrock_doc_name(file_name: str) -> str:
     base = re.sub(r"[._]+", " ", base)
     base = re.sub(r"[^A-Za-z0-9 \-\(\)\[\]]+", " ", base)
     base = re.sub(r"\s+", " ", base).strip()
-
-    if not base:
-        base = "Document"
-
-    return base[:100]
+    return base[:100] or "Document"
 
 
 def _guess_format_from_mime(mime: str | None) -> str | None:
@@ -183,6 +185,8 @@ def _guess_format_from_mime(mime: str | None) -> str | None:
     return None
 
 
+# ==================== Construcción de payload ====================
+
 def compose_args_for_converse_api(
     messages: list[MessageModel],
     model: type_model_name,
@@ -193,24 +197,34 @@ def compose_args_for_converse_api(
     guardrail: BedrockGuardrailsModel | None = None,
     attachments: list[dict] | None = None,
 ) -> ConverseApiRequest:
+    """
+    Construye el payload para Bedrock Converse (no-stream). Tu streaming lo maneja app.stream.
+    """
+
     def process_content(c: ContentModel, role: str):
         # TEXT
         if c.content_type == "text":
+            body = c.body if isinstance(c.body, str) else ""
+            if not body.strip():
+                logger.debug("Ignorando bloque de texto vacío (role=%s)", role)
+                return []
+
+            # Si usas guardrails con grounding
             if (
                 role == "user"
                 and guardrail
-                and guardrail.grounding_threshold > 0
+                and getattr(guardrail, "grounding_threshold", 0) > 0
                 and grounding_source
             ):
                 return [
                     {"guardContent": grounding_source},
                     {
                         "guardContent": {
-                            "text": {"text": c.body, "qualifiers": ["query"]}
+                            "text": {"text": body, "qualifiers": ["query"]}
                         }
                     },
                 ]
-            return [{"text": c.body}] if isinstance(c.body, str) else []
+            return [{"text": body}]
 
         # IMAGE
         elif c.content_type == "image":
@@ -246,7 +260,7 @@ def compose_args_for_converse_api(
                         guessed_fmt = "xlsx"
 
                 if not guessed_fmt and c.file_name:
-                    ext = c.file_name.split(".")[-1].lower()
+                    ext = c.file_name.rsplit(".", 1)[-1].lower() if "." in c.file_name else ""
                     guessed_fmt = _get_converse_supported_format(ext)
                 if not guessed_fmt:
                     guessed_fmt = "pdf"
@@ -286,9 +300,20 @@ def compose_args_for_converse_api(
             blocks = process_content(c, message.role)
             content_blocks.extend(blocks)
 
+        # Sólo agregar si quedaron bloques válidos
         if content_blocks:
-            arg_messages.append({"role": message.role, "content": content_blocks})
+            has_valid = any(
+                ("text" in b) or ("image" in b) or ("document" in b)
+                for b in content_blocks
+            )
+            if has_valid:
+                arg_messages.append({"role": message.role, "content": content_blocks})
+            else:
+                logger.debug(
+                    "Saltando mensaje %s por no tener bloques válidos", message.role
+                )
 
+    # Adjuntos enviados fuera del content (attachments raíz)
     def _doc_block(name: str, fmt: str, raw: bytes) -> dict:
         return {"document": {"format": fmt, "name": name, "source": {"bytes": raw}}}
 
@@ -303,11 +328,7 @@ def compose_args_for_converse_api(
             name = _sanitize_bedrock_doc_name(original_file_name or "Document")
             fmt = (
                 _guess_format_from_mime(f.get("mimeType"))
-                or (
-                    original_file_name.rsplit(".", 1)[-1].lower()
-                    if "." in original_file_name
-                    else None
-                )
+                or (original_file_name.rsplit(".", 1)[-1].lower() if "." in original_file_name else None)
             )
             fmt = _get_converse_supported_format(fmt) if fmt else "pdf"
 
@@ -330,6 +351,7 @@ def compose_args_for_converse_api(
             arg_messages.append({"role": "user", "content": []})
         arg_messages[-1]["content"].extend(root_doc_blocks)
 
+    # Log resumen de bloques
     try:
         msg_summary = []
         for m in arg_messages:
@@ -339,60 +361,41 @@ def compose_args_for_converse_api(
     except Exception:
         logger.exception("[ConverseArgs] No pude resumir mensajes")
 
-     # ================== INICIO BLOQUE AJUSTADO (Anthropic) ==================
+    # ======== Configuración de generación =========
     inference_config = {
         **DEFAULT_GENERATION_CONFIG,
         "maxTokens": 4096,
-        **(
-            {
-                "temperature": generation_params.temperature,
-                # Ojo: aquí usamos la clave camel (topP) si viene desde params;
-                # pero DEFAULT_GENERATION_CONFIG podría traer 'top_p' (snake) o 'topP' (camel)
-                "topP": generation_params.top_p,
-                "stopSequences": generation_params.stop_sequences,
-            }
-            if generation_params
-            else {}
-        ),
     }
 
-    # Mover top_k a additional_model_request_fields si viniera en DEFAULT_GENERATION_CONFIG
-    additional_model_request_fields = {}
-    # top_k puede venir en snake o camel; cubrimos ambos
+    if generation_params:
+        if generation_params.temperature is not None:
+            inference_config["temperature"] = generation_params.temperature
+        if getattr(generation_params, "top_p", None) is not None:
+            # usar camel por si acaso
+            inference_config["topP"] = generation_params.top_p
+        if getattr(generation_params, "stop_sequences", None):
+            inference_config["stopSequences"] = generation_params.stop_sequences
+
+    # Campos adicionales (por ejemplo top_k) -> mover/limpiar
+    additional_model_request_fields: dict = {}
     if "top_k" in inference_config:
         additional_model_request_fields["top_k"] = inference_config.pop("top_k")
     if "topK" in inference_config:
         additional_model_request_fields["top_k"] = inference_config.pop("topK")
 
-    # Si el modelo es Anthropic (claude-*), no enviar additional_model_request_fields (evita top_k y otros no soportados)
+    # Reglas para Anthropic (Claude):
+    # - No enviar stopSequences/topP/top_p
+    # - Vaciar additional_model_request_fields
     if isinstance(model, str) and model.startswith("claude-"):
+        inference_config.pop("stopSequences", None)
+        inference_config.pop("top_p", None)
+        inference_config.pop("topP", None)
         additional_model_request_fields = {}
 
-    # Sanitizar combinaciones no soportadas por Claude 4.5:
-    # quitar topP/top_p si también hay temperature
-    def _sanitize_inference_config_for_model(model_name: type_model_name, cfg: dict) -> dict:
-        cfg = dict(cfg)
-        is_anthropic = isinstance(model_name, str) and model_name.startswith("claude-")
-        if is_anthropic:
-            has_temp = "temperature" in cfg and cfg["temperature"] is not None
-            if has_temp:
-                # Eliminar ambas variantes si existen
-                if "topP" in cfg:
-                    cfg.pop("topP", None)
-                if "top_p" in cfg:
-                    cfg.pop("top_p", None)
-        return cfg
-
-    inference_config = _sanitize_inference_config_for_model(model, inference_config)
-    # ================== FIN BLOQUE AJUSTADO (Anthropic) ======================
-
+    # Si hay documentos adjuntos, añade una instrucción auxiliar
     if any(any("document" in b for b in m["content"]) for m in arg_messages):
-        extra_instruction = (
-            "Analiza el/los archivo(s) PDF adjunto(s) y responde a la solicitud del usuario."
-        )
-        instruction = (
-            instruction + " " + extra_instruction if instruction else extra_instruction
-        )
+        extra_instruction = "Analiza el/los archivo(s) adjunto(s) y responde a la solicitud del usuario."
+        instruction = (instruction + " " + extra_instruction) if instruction else extra_instruction
 
     args: ConverseApiRequest = {
         "inference_config": convert_dict_keys_to_camel_case(inference_config),
@@ -419,6 +422,8 @@ def compose_args_for_converse_api(
 
     return args
 
+
+# ==================== Llamada síncrona Converse ====================
 
 def call_converse_api(args: ConverseApiRequest) -> ConverseApiResponse:
     client = get_bedrock_runtime_client()
@@ -454,6 +459,8 @@ def call_converse_api(args: ConverseApiRequest) -> ConverseApiResponse:
         raise
 
 
+# ==================== Precios ====================
+
 def calculate_price(
     model: type_model_name,
     input_tokens: int,
@@ -473,14 +480,13 @@ def calculate_price(
     return input_price * input_tokens / 1000.0 + output_price * output_tokens / 1000.0
 
 
+# ==================== Model IDs ====================
+
 def get_model_id(model: type_model_name) -> str:
     """
     Mapeo interno -> modelId aceptado por Bedrock Converse/ConverseStream.
-    - Modelos on-demand clásicos: foundation model id.
-    - Claude 4.5 Sonnet: requiere Inference Profile (ID system-defined por región
-      o ARN/ID provisto por env BEDROCK_MODEL_ID_OVERRIDE).
+    - Claude 4.5 Sonnet requiere Inference Profile (ID/ARN) o variable BEDROCK_MODEL_ID_OVERRIDE.
     """
-    # Permite override manual (ARN/ID) para cualquier modelo
     override = os.environ.get("BEDROCK_MODEL_ID_OVERRIDE")
     if override:
         return override
@@ -509,7 +515,6 @@ def get_model_id(model: type_model_name) -> str:
         elif is_eu:
             return "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"
         else:
-            # fallback seguro a US
             return "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 
     elif model == "mistral-7b-instruct":
@@ -521,6 +526,8 @@ def get_model_id(model: type_model_name) -> str:
     else:
         raise ValueError(f"Modelo no soportado en get_model_id(): {model}")
 
+
+# ==================== Embeddings ====================
 
 def calculate_query_embedding(question: str) -> list[float]:
     model_id = DEFAULT_EMBEDDING_CONFIG["model_id"]
